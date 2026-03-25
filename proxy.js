@@ -218,21 +218,6 @@ const httpAgent = new http.Agent({
   timeout: 20000,
 });
 
-// cache of http2 sessions keyed by origin
-const h2sessions = new Map();
-
-function getH2Session(origin) {
-  if (h2sessions.has(origin)) {
-    const s = h2sessions.get(origin);
-    if (!s.destroyed && !s.closed) return s;
-    h2sessions.delete(origin);
-  }
-  const s = http2.connect(origin, { rejectUnauthorized: false });
-  s.on('error', () => { s.destroy(); h2sessions.delete(origin); });
-  s.on('close', () => h2sessions.delete(origin));
-  h2sessions.set(origin, s);
-  return s;
-}
 
 function buildForwardHeaders(req, parsed) {
   const forwardHeaders = {};
@@ -314,48 +299,59 @@ function buildResponseHeaders(rawHeaders, targetUrl) {
   return headers;
 }
 
-function doRequestH2(targetUrl, parsed, req, res) {
+function doRequestH2(targetUrl, parsed, req, res, bodyBuffer) {
   return new Promise((resolve, reject) => {
     const origin = `${parsed.protocol}//${parsed.hostname}${parsed.port ? ':' + parsed.port : ''}`;
-    let session;
-    try {
-      session = getH2Session(origin);
-    } catch (e) {
-      return reject(e);
-    }
 
-    const forwardHeaders = buildForwardHeaders(req, parsed);
-    const h2Headers = {
-      [http2.constants.HTTP2_HEADER_METHOD]: req.method,
-      [http2.constants.HTTP2_HEADER_PATH]: parsed.pathname + parsed.search,
-      [http2.constants.HTTP2_HEADER_SCHEME]: 'https',
-      [http2.constants.HTTP2_HEADER_AUTHORITY]: parsed.hostname,
-      ...forwardHeaders,
-    };
-    // remove http1-only headers that break h2
-    delete h2Headers['host'];
-    delete h2Headers['connection'];
+    // connect fresh every time — no session caching, avoids stale session hangs
+    const session = http2.connect(origin, { rejectUnauthorized: false });
 
-    const stream = session.request(h2Headers);
-    stream.setTimeout(20000, () => { stream.destroy(); reject(new Error('timeout')); });
+    const cleanup = () => { try { session.destroy(); } catch {} };
 
-    stream.on('error', err => {
-      h2sessions.delete(origin);
+    // if connection itself never succeeds, reject quickly
+    const connectTimeout = setTimeout(() => {
+      cleanup();
+      reject(new Error('h2 connect timeout'));
+    }, 5000);
+
+    session.on('error', err => {
+      clearTimeout(connectTimeout);
+      cleanup();
       reject(err);
     });
 
-    stream.on('response', (headers) => {
-      const status = headers[http2.constants.HTTP2_HEADER_STATUS];
-      const resHeaders = buildResponseHeaders(headers, targetUrl);
-      handleResponseBody(stream, resHeaders, status, targetUrl, res);
-      resolve();
-    });
+    session.on('connect', () => {
+      clearTimeout(connectTimeout);
 
-    if (req.method !== 'GET' && req.method !== 'HEAD') {
-      req.pipe(stream);
-    } else {
-      stream.end();
-    }
+      const forwardHeaders = buildForwardHeaders(req, parsed);
+      const h2Headers = {
+        [http2.constants.HTTP2_HEADER_METHOD]: req.method,
+        [http2.constants.HTTP2_HEADER_PATH]: parsed.pathname + parsed.search,
+        [http2.constants.HTTP2_HEADER_SCHEME]: 'https',
+        [http2.constants.HTTP2_HEADER_AUTHORITY]: parsed.hostname,
+        ...forwardHeaders,
+      };
+      delete h2Headers['host'];
+      delete h2Headers['connection'];
+
+      const stream = session.request(h2Headers);
+      stream.setTimeout(15000, () => { cleanup(); reject(new Error('h2 stream timeout')); });
+      stream.on('error', err => { cleanup(); reject(err); });
+
+      stream.on('response', (headers) => {
+        const status = headers[http2.constants.HTTP2_HEADER_STATUS];
+        const resHeaders = buildResponseHeaders(headers, targetUrl);
+        handleResponseBody(stream, resHeaders, status, targetUrl, res);
+        stream.on('end', () => cleanup());
+        resolve();
+      });
+
+      if (bodyBuffer && bodyBuffer.length) {
+        stream.end(bodyBuffer);
+      } else {
+        stream.end();
+      }
+    });
   });
 }
 
@@ -411,7 +407,7 @@ async function doRequest(targetUrl, req, res, bodyBuffer) {
   // try HTTP/2 first for https, fall back to HTTP/1.1
   if (parsed.protocol === 'https:') {
     try {
-      await doRequestH2(targetUrl, parsed, req, res);
+      await doRequestH2(targetUrl, parsed, req, res, bodyBuffer);
       return;
     } catch (err) {
       console.log(`  h2 failed (${err.message}), falling back to h1...`);
