@@ -217,25 +217,8 @@ const httpAgent = new http.Agent({
   timeout: 20000,
 });
 
-const server = http.createServer((req, res) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', '*');
-  res.setHeader('Access-Control-Allow-Credentials', 'true');
-
-  if (req.method === 'OPTIONS') {
-    res.writeHead(204);
-    res.end();
-    return;
-  }
-
-  if (req.url === '/' || req.url === '') {
-    res.writeHead(200, { 'content-type': 'text/html' });
-    res.end('<h2>Tachyon proxy running</h2>');
-    return;
-  }
-
-  let targetUrl = dec(req.url.slice(1));
+function doRequest(targetUrl, req, res, attempt) {
+  if (attempt === undefined) attempt = 0;
 
   if (!targetUrl.startsWith('http://') && !targetUrl.startsWith('https://')) {
     res.writeHead(400, { 'content-type': 'text/plain' });
@@ -247,12 +230,15 @@ const server = http.createServer((req, res) => {
   try {
     parsed = new URL(targetUrl);
   } catch {
-    res.writeHead(400, { 'content-type': 'text/plain' });
-    res.end('Invalid URL');
+    if (!res.headersSent) {
+      res.writeHead(400, { 'content-type': 'text/plain' });
+      res.end('Invalid URL');
+    }
     return;
   }
 
-  console.log(`→ ${req.method} ${targetUrl}`);
+  if (attempt === 0) console.log(`→ ${req.method} ${targetUrl}`);
+  else console.log(`  retry ${attempt} — ${targetUrl}`);
 
   const isHttps = parsed.protocol === 'https:';
   const lib = isHttps ? https : http;
@@ -267,8 +253,16 @@ const server = http.createServer((req, res) => {
   }
   forwardHeaders['host'] = parsed.hostname;
   forwardHeaders['user-agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
-  forwardHeaders['accept'] = forwardHeaders['accept'] || 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8';
+  forwardHeaders['accept'] = forwardHeaders['accept'] || 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8';
   forwardHeaders['accept-language'] = 'en-US,en;q=0.9';
+  forwardHeaders['sec-ch-ua'] = '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"';
+  forwardHeaders['sec-ch-ua-mobile'] = '?0';
+  forwardHeaders['sec-ch-ua-platform'] = '"Windows"';
+  forwardHeaders['sec-fetch-dest'] = forwardHeaders['sec-fetch-dest'] || 'document';
+  forwardHeaders['sec-fetch-mode'] = forwardHeaders['sec-fetch-mode'] || 'navigate';
+  forwardHeaders['sec-fetch-site'] = 'none';
+  forwardHeaders['sec-fetch-user'] = '?1';
+  forwardHeaders['upgrade-insecure-requests'] = '1';
   forwardHeaders['connection'] = 'close';
 
   const options = {
@@ -354,6 +348,12 @@ const server = http.createServer((req, res) => {
   });
 
   proxyReq.on('error', err => {
+    const hangUp = err.message.includes('socket hang up') || err.message.includes('ECONNRESET') || err.message.includes('ECONNREFUSED');
+    if (hangUp && attempt < 2) {
+      console.log(`  ↺ hang up, retrying (${attempt + 1}/2)...`);
+      setTimeout(() => doRequest(targetUrl, req, res, attempt + 1), 500 * (attempt + 1));
+      return;
+    }
     console.error(`✗ ${err.message} — ${targetUrl}`);
     if (!res.headersSent) {
       res.writeHead(502, { 'content-type': 'text/plain' });
@@ -370,7 +370,41 @@ const server = http.createServer((req, res) => {
     }
   });
 
-  req.pipe(proxyReq);
+  // only pipe body on first attempt (req stream already consumed after that)
+  if (attempt === 0) {
+    req.pipe(proxyReq);
+  } else {
+    proxyReq.end();
+  }
+}
+
+const server = http.createServer((req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', '*');
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+
+  if (req.method === 'OPTIONS') {
+    res.writeHead(204);
+    res.end();
+    return;
+  }
+
+  if (req.url === '/' || req.url === '') {
+    res.writeHead(200, { 'content-type': 'text/html' });
+    res.end('<h2>Tachyon proxy running</h2>');
+    return;
+  }
+
+  let targetUrl = dec(req.url.slice(1));
+
+  if (!targetUrl.startsWith('http://') && !targetUrl.startsWith('https://')) {
+    res.writeHead(400, { 'content-type': 'text/plain' });
+    res.end('Bad request: expected http(s) url');
+    return;
+  }
+
+  doRequest(targetUrl, req, res, 0);
 });
 
 server.listen(PORT, '127.0.0.1', () => {
