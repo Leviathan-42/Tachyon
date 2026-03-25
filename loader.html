@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Loading...</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body, html { width: 100%; height: 100%; background: #0f0f0f; }
+    iframe { width: 100%; height: 100%; border: none; display: block; }
+  </style>
+</head>
+<body>
+  <iframe id="frame" src="" allowfullscreen allow="autoplay; fullscreen; encrypted-media; microphone; camera"></iframe>
+  <script>
+    const params = new URLSearchParams(window.location.search);
+    const url = params.get('url');
+    if (url) {
+      document.getElementById('frame').src = url;
+    }
+  </script>
+</body>
+</html>

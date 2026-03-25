@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Launcher</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+  <div class="container">
+    <h1 class="title">Launcher</h1>
+    <p class="subtitle">Select a site to open</p>
+
+    <div class="search-bar">
+      <input type="text" id="customUrl" placeholder="Or enter a custom URL..." />
+      <button onclick="launchCustom()">Go</button>
+    </div>
+
+    <div class="grid" id="grid">
+
+      <div class="card" onclick="launch('youtube')">
+        <div class="icon">▶</div>
+        <div class="label">YouTube</div>
+      </div>
+
+      <div class="card" onclick="launch('nilered')">
+        <div class="icon">🧪</div>
+        <div class="label">NileRed</div>
+      </div>
+
+      <div class="card" onclick="launch('google')">
+        <div class="icon">🔍</div>
+        <div class="label">Google</div>
+      </div>
+
+      <div class="card" onclick="launch('reddit')">
+        <div class="icon">👾</div>
+        <div class="label">Reddit</div>
+      </div>
+
+      <div class="card" onclick="launch('twitch')">
+        <div class="icon">🎮</div>
+        <div class="label">Twitch</div>
+      </div>
+
+      <div class="card" onclick="launch('spotify')">
+        <div class="icon">🎵</div>
+        <div class="label">Spotify</div>
+      </div>
+
+    </div>
+
+    <div class="method-toggle">
+      <span>Launch method:</span>
+      <label><input type="radio" name="method" value="aboutblank" checked> about:blank</label>
+      <label><input type="radio" name="method" value="iframe"> Inline iframe</label>
+      <label><input type="radio" name="method" value="direct"> Direct (no cloak)</label>
+    </div>
+
+    <div id="inline-container" class="inline-container hidden">
+      <div class="inline-bar">
+        <span id="inline-label">-</span>
+        <button onclick="closeInline()">Close</button>
+      </div>
+      <iframe id="inline-frame" src="" allowfullscreen></iframe>
+    </div>
+
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
