@@ -1,5 +1,6 @@
 const http = require('http');
 const https = require('https');
+const http2 = require('http2');
 const { Transform } = require('stream');
 
 const PORT = 8080;
@@ -217,41 +218,29 @@ const httpAgent = new http.Agent({
   timeout: 20000,
 });
 
-function doRequest(targetUrl, req, res, attempt) {
-  if (attempt === undefined) attempt = 0;
+// cache of http2 sessions keyed by origin
+const h2sessions = new Map();
 
-  if (!targetUrl.startsWith('http://') && !targetUrl.startsWith('https://')) {
-    res.writeHead(400, { 'content-type': 'text/plain' });
-    res.end('Bad request: expected http(s) url');
-    return;
+function getH2Session(origin) {
+  if (h2sessions.has(origin)) {
+    const s = h2sessions.get(origin);
+    if (!s.destroyed && !s.closed) return s;
+    h2sessions.delete(origin);
   }
+  const s = http2.connect(origin, { rejectUnauthorized: false });
+  s.on('error', () => { s.destroy(); h2sessions.delete(origin); });
+  s.on('close', () => h2sessions.delete(origin));
+  h2sessions.set(origin, s);
+  return s;
+}
 
-  let parsed;
-  try {
-    parsed = new URL(targetUrl);
-  } catch {
-    if (!res.headersSent) {
-      res.writeHead(400, { 'content-type': 'text/plain' });
-      res.end('Invalid URL');
-    }
-    return;
-  }
-
-  if (attempt === 0) console.log(`→ ${req.method} ${targetUrl}`);
-  else console.log(`  retry ${attempt} — ${targetUrl}`);
-
-  const isHttps = parsed.protocol === 'https:';
-  const lib = isHttps ? https : http;
-  const agent = isHttps ? httpsAgent : httpAgent;
-
-  // build clean headers — strip all hop-by-hop and problematic ones
+function buildForwardHeaders(req, parsed) {
   const forwardHeaders = {};
   for (const [k, v] of Object.entries(req.headers)) {
     if (!HOP_BY_HOP.includes(k.toLowerCase())) {
       forwardHeaders[k] = v;
     }
   }
-  forwardHeaders['host'] = parsed.hostname;
   forwardHeaders['user-agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
   forwardHeaders['accept'] = forwardHeaders['accept'] || 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8';
   forwardHeaders['accept-language'] = 'en-US,en;q=0.9';
@@ -263,118 +252,180 @@ function doRequest(targetUrl, req, res, attempt) {
   forwardHeaders['sec-fetch-site'] = 'none';
   forwardHeaders['sec-fetch-user'] = '?1';
   forwardHeaders['upgrade-insecure-requests'] = '1';
-  forwardHeaders['connection'] = 'close';
+  return forwardHeaders;
+}
 
-  const options = {
-    hostname: parsed.hostname,
-    port: parsed.port || (isHttps ? 443 : 80),
-    path: parsed.pathname + parsed.search,
-    method: req.method,
-    headers: forwardHeaders,
-    agent,
-    timeout: 20000,
-  };
+function handleResponseBody(proxyRes, resHeaders, statusCode, targetUrl, res) {
+  const contentType = (resHeaders['content-type'] || '').toLowerCase();
+  const isHtml = contentType.includes('text/html');
+  const isCss = contentType.includes('text/css');
+  const isJs = contentType.includes('javascript') || contentType.includes('ecmascript');
 
-  const proxyReq = lib.request(options, (proxyRes) => {
-    const headers = {};
-
-    // copy response headers, stripping blocked ones
-    for (const [k, v] of Object.entries(proxyRes.headers)) {
-      if (!STRIP_RESPONSE.includes(k.toLowerCase())) {
-        headers[k] = v;
-      }
-    }
-
-    // always allow cors from localhost
-    headers['access-control-allow-origin'] = '*';
-    headers['access-control-allow-credentials'] = 'true';
-
-    // rewrite redirect location
-    if (headers['location']) {
-      try {
-        const redirectUrl = new URL(headers['location'], targetUrl).href;
-        headers['location'] = `${PROXY_BASE}/${enc(redirectUrl)}`;
-      } catch {}
-    }
-
-    // fix cookies
-    if (headers['set-cookie']) {
-      const cookies = Array.isArray(headers['set-cookie'])
-        ? headers['set-cookie']
-        : [headers['set-cookie']];
-      headers['set-cookie'] = cookies.map(c =>
-        c.replace(/;\s*domain=[^;]*/gi, '')
-         .replace(/;\s*secure/gi, '')
-         .replace(/;\s*samesite=[^;]*/gi, '')
-         .replace(/;\s*partitioned/gi, '')
-      );
-    }
-
-    const contentType = (headers['content-type'] || '').toLowerCase();
-    const isHtml = contentType.includes('text/html');
-    const isCss = contentType.includes('text/css');
-    const isJs = contentType.includes('javascript') || contentType.includes('ecmascript');
-
-    if (isHtml || isCss || isJs) {
-      const chunks = [];
-      proxyRes.on('data', chunk => chunks.push(chunk));
-      proxyRes.on('end', () => {
-        let body = Buffer.concat(chunks).toString('utf8');
-
-        if (isHtml) body = rewriteHtml(body, targetUrl);
-        else if (isCss) body = rewriteCss(body, targetUrl);
-        else if (isJs) body = rewriteJs(body, targetUrl);
-
-        const buf = Buffer.from(body, 'utf8');
-        headers['content-length'] = buf.length.toString();
-        delete headers['transfer-encoding'];
-
-        res.writeHead(proxyRes.statusCode, headers);
+  if (isHtml || isCss || isJs) {
+    const chunks = [];
+    proxyRes.on('data', chunk => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
+    proxyRes.on('end', () => {
+      let body = Buffer.concat(chunks).toString('utf8');
+      if (isHtml) body = rewriteHtml(body, targetUrl);
+      else if (isCss) body = rewriteCss(body, targetUrl);
+      else if (isJs) body = rewriteJs(body, targetUrl);
+      const buf = Buffer.from(body, 'utf8');
+      resHeaders['content-length'] = buf.length.toString();
+      delete resHeaders['transfer-encoding'];
+      if (!res.headersSent) {
+        res.writeHead(statusCode, resHeaders);
         res.end(buf);
-      });
-      proxyRes.on('error', err => {
-        console.error(`Stream error: ${err.message}`);
-        if (!res.headersSent) {
-          res.writeHead(502);
-          res.end('Stream error');
-        }
-      });
+      }
+    });
+    proxyRes.on('error', err => {
+      console.error(`Stream error: ${err.message}`);
+      if (!res.headersSent) { res.writeHead(502); res.end('Stream error'); }
+    });
+  } else {
+    if (!res.headersSent) res.writeHead(statusCode, resHeaders);
+    proxyRes.pipe(res);
+    proxyRes.on('error', err => console.error(`Stream error: ${err.message}`));
+  }
+}
+
+function buildResponseHeaders(rawHeaders, targetUrl) {
+  const headers = {};
+  for (const [k, v] of Object.entries(rawHeaders)) {
+    if (k.startsWith(':')) continue; // skip http2 pseudo-headers
+    if (!STRIP_RESPONSE.includes(k.toLowerCase())) headers[k] = v;
+  }
+  headers['access-control-allow-origin'] = '*';
+  headers['access-control-allow-credentials'] = 'true';
+  if (headers['location']) {
+    try {
+      const redirectUrl = new URL(headers['location'], targetUrl).href;
+      headers['location'] = `${PROXY_BASE}/${enc(redirectUrl)}`;
+    } catch {}
+  }
+  if (headers['set-cookie']) {
+    const cookies = Array.isArray(headers['set-cookie']) ? headers['set-cookie'] : [headers['set-cookie']];
+    headers['set-cookie'] = cookies.map(c =>
+      c.replace(/;\s*domain=[^;]*/gi, '')
+       .replace(/;\s*secure/gi, '')
+       .replace(/;\s*samesite=[^;]*/gi, '')
+       .replace(/;\s*partitioned/gi, '')
+    );
+  }
+  return headers;
+}
+
+function doRequestH2(targetUrl, parsed, req, res) {
+  return new Promise((resolve, reject) => {
+    const origin = `${parsed.protocol}//${parsed.hostname}${parsed.port ? ':' + parsed.port : ''}`;
+    let session;
+    try {
+      session = getH2Session(origin);
+    } catch (e) {
+      return reject(e);
+    }
+
+    const forwardHeaders = buildForwardHeaders(req, parsed);
+    const h2Headers = {
+      [http2.constants.HTTP2_HEADER_METHOD]: req.method,
+      [http2.constants.HTTP2_HEADER_PATH]: parsed.pathname + parsed.search,
+      [http2.constants.HTTP2_HEADER_SCHEME]: 'https',
+      [http2.constants.HTTP2_HEADER_AUTHORITY]: parsed.hostname,
+      ...forwardHeaders,
+    };
+    // remove http1-only headers that break h2
+    delete h2Headers['host'];
+    delete h2Headers['connection'];
+
+    const stream = session.request(h2Headers);
+    stream.setTimeout(20000, () => { stream.destroy(); reject(new Error('timeout')); });
+
+    stream.on('error', err => {
+      h2sessions.delete(origin);
+      reject(err);
+    });
+
+    stream.on('response', (headers) => {
+      const status = headers[http2.constants.HTTP2_HEADER_STATUS];
+      const resHeaders = buildResponseHeaders(headers, targetUrl);
+      handleResponseBody(stream, resHeaders, status, targetUrl, res);
+      resolve();
+    });
+
+    if (req.method !== 'GET' && req.method !== 'HEAD') {
+      req.pipe(stream);
     } else {
-      // binary content — stream directly
-      res.writeHead(proxyRes.statusCode, headers);
-      proxyRes.pipe(res);
-      proxyRes.on('error', err => console.error(`Stream error: ${err.message}`));
+      stream.end();
     }
   });
+}
 
-  proxyReq.on('error', err => {
-    const hangUp = err.message.includes('socket hang up') || err.message.includes('ECONNRESET') || err.message.includes('ECONNREFUSED');
-    if (hangUp && attempt < 2) {
-      console.log(`  ↺ hang up, retrying (${attempt + 1}/2)...`);
-      setTimeout(() => doRequest(targetUrl, req, res, attempt + 1), 500 * (attempt + 1));
-      return;
+function doRequestH1(targetUrl, parsed, req, res, bodyBuffer) {
+  return new Promise((resolve, reject) => {
+    const isHttps = parsed.protocol === 'https:';
+    const lib = isHttps ? https : http;
+    const agent = isHttps ? httpsAgent : httpAgent;
+
+    const forwardHeaders = buildForwardHeaders(req, parsed);
+    forwardHeaders['host'] = parsed.hostname;
+    forwardHeaders['connection'] = 'close';
+    if (bodyBuffer) forwardHeaders['content-length'] = bodyBuffer.length.toString();
+
+    const options = {
+      hostname: parsed.hostname,
+      port: parsed.port || (isHttps ? 443 : 80),
+      path: parsed.pathname + parsed.search,
+      method: req.method,
+      headers: forwardHeaders,
+      agent,
+      timeout: 20000,
+    };
+
+    const proxyReq = lib.request(options, (proxyRes) => {
+      const resHeaders = buildResponseHeaders(proxyRes.headers, targetUrl);
+      handleResponseBody(proxyRes, resHeaders, proxyRes.statusCode, targetUrl, res);
+      resolve();
+    });
+
+    proxyReq.on('error', reject);
+    proxyReq.on('timeout', () => { proxyReq.destroy(); reject(new Error('timeout')); });
+
+    if (bodyBuffer) {
+      proxyReq.end(bodyBuffer);
+    } else {
+      proxyReq.end();
     }
+  });
+}
+
+async function doRequest(targetUrl, req, res, bodyBuffer) {
+  let parsed;
+  try {
+    parsed = new URL(targetUrl);
+  } catch {
+    if (!res.headersSent) { res.writeHead(400); res.end('Invalid URL'); }
+    return;
+  }
+
+  console.log(`→ ${req.method} ${targetUrl}`);
+
+  // try HTTP/2 first for https, fall back to HTTP/1.1
+  if (parsed.protocol === 'https:') {
+    try {
+      await doRequestH2(targetUrl, parsed, req, res);
+      return;
+    } catch (err) {
+      console.log(`  h2 failed (${err.message}), falling back to h1...`);
+    }
+  }
+
+  try {
+    await doRequestH1(targetUrl, parsed, req, res, bodyBuffer);
+  } catch (err) {
     console.error(`✗ ${err.message} — ${targetUrl}`);
     if (!res.headersSent) {
       res.writeHead(502, { 'content-type': 'text/plain' });
       res.end(`Proxy error: ${err.message}`);
     }
-  });
-
-  proxyReq.on('timeout', () => {
-    console.error(`✗ timeout — ${targetUrl}`);
-    proxyReq.destroy();
-    if (!res.headersSent) {
-      res.writeHead(504, { 'content-type': 'text/plain' });
-      res.end('Gateway timeout');
-    }
-  });
-
-  // only pipe body on first attempt (req stream already consumed after that)
-  if (attempt === 0) {
-    req.pipe(proxyReq);
-  } else {
-    proxyReq.end();
   }
 }
 
@@ -404,7 +455,13 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  doRequest(targetUrl, req, res, 0);
+  // buffer request body so it can be replayed on h1 fallback
+  const bodyChunks = [];
+  req.on('data', chunk => bodyChunks.push(chunk));
+  req.on('end', () => {
+    const bodyBuffer = bodyChunks.length ? Buffer.concat(bodyChunks) : null;
+    doRequest(targetUrl, req, res, bodyBuffer);
+  });
 });
 
 server.listen(PORT, '127.0.0.1', () => {
