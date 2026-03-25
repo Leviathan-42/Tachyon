@@ -1,38 +1,187 @@
 const http = require('http');
 const https = require('https');
-const url = require('url');
-
 const PORT = 8080;
+const PROXY_BASE = `http://127.0.0.1:${PORT}`;
 
-// headers to strip from responses so iframes work
-const BLOCKED_HEADERS = [
+// headers to strip from responses
+const STRIP_HEADERS = [
   'x-frame-options',
   'content-security-policy',
   'content-security-policy-report-only',
   'x-content-type-options',
+  'strict-transport-security',
+  'permissions-policy',
+  'cross-origin-opener-policy',
+  'cross-origin-embedder-policy',
+  'cross-origin-resource-policy',
 ];
 
-function rewriteUrls(body, baseUrl, proxyBase) {
-  const base = new URL(baseUrl);
-  const origin = base.origin;
+// encode a url for use as a proxy path
+function enc(u) {
+  return encodeURIComponent(u);
+}
 
-  // rewrite absolute urls pointing to the same origin
-  body = body.replace(/https?:\/\/[^\s"'`)]+/g, (match) => {
-    try {
-      new URL(match); // valid url
-      return `${proxyBase}${encodeURIComponent(match)}`;
-    } catch {
-      return match;
-    }
+// decode a proxy path back to a url
+function dec(s) {
+  try { return decodeURIComponent(s); } catch { return s; }
+}
+
+// resolve a url relative to a base
+function resolve(base, rel) {
+  try {
+    return new URL(rel, base).href;
+  } catch {
+    return rel;
+  }
+}
+
+// rewrite a url to go through the proxy
+function rewriteUrl(u, base) {
+  if (!u || u.startsWith('data:') || u.startsWith('blob:') || u.startsWith('javascript:') || u.startsWith('#')) return u;
+  try {
+    const resolved = resolve(base, u);
+    if (!resolved.startsWith('http://') && !resolved.startsWith('https://')) return u;
+    return `${PROXY_BASE}/${enc(resolved)}`;
+  } catch {
+    return u;
+  }
+}
+
+// rewrite all urls in html
+function rewriteHtml(html, base) {
+  // src and href attributes
+  html = html.replace(/(src|href|action|data-src|data-href)=["']([^"']+)["']/gi, (match, attr, val) => {
+    return `${attr}="${rewriteUrl(val, base)}"`;
   });
 
-  return body;
+  // srcset attributes
+  html = html.replace(/srcset=["']([^"']+)["']/gi, (match, val) => {
+    const rewritten = val.split(',').map(part => {
+      const [url, size] = part.trim().split(/\s+/);
+      return size ? `${rewriteUrl(url, base)} ${size}` : rewriteUrl(url, base);
+    }).join(', ');
+    return `srcset="${rewritten}"`;
+  });
+
+  // inline style url()
+  html = html.replace(/url\(["']?([^"')]+)["']?\)/gi, (match, val) => {
+    return `url("${rewriteUrl(val, base)}")`;
+  });
+
+  // meta refresh
+  html = html.replace(/<meta[^>]+http-equiv=["']?refresh["']?[^>]+content=["']([^"']+)["']/gi, (match, val) => {
+    return match.replace(val, val.replace(/url=(.+)/i, (m, u) => `url=${rewriteUrl(u, base)}`));
+  });
+
+  // inject our runtime script right after <head> opens
+  const runtime = `<script>
+(function() {
+  const PROXY = "${PROXY_BASE}";
+  function enc(u) { return encodeURIComponent(u); }
+  function rewrite(u) {
+    if (!u || u.startsWith('data:') || u.startsWith('blob:') || u.startsWith('javascript:') || u.startsWith('#') || u.startsWith(PROXY)) return u;
+    try {
+      const resolved = new URL(u, window.__tachyon_base || location.href).href;
+      if (!resolved.startsWith('http://') && !resolved.startsWith('https://')) return u;
+      return PROXY + '/' + enc(resolved);
+    } catch { return u; }
+  }
+
+  // store the real origin base for relative url resolution
+  window.__tachyon_base = "${base}";
+
+  // patch fetch
+  const _fetch = window.fetch;
+  window.fetch = function(input, init) {
+    if (typeof input === 'string') input = rewrite(input);
+    else if (input instanceof Request) input = new Request(rewrite(input.url), input);
+    return _fetch.call(this, input, init);
+  };
+
+  // patch XMLHttpRequest
+  const _open = XMLHttpRequest.prototype.open;
+  XMLHttpRequest.prototype.open = function(method, url, ...rest) {
+    return _open.call(this, method, rewrite(url), ...rest);
+  };
+
+  // patch WebSocket
+  const _WS = window.WebSocket;
+  window.WebSocket = function(url, protocols) {
+    // cant proxy websockets without a ws server, just let them fail silently
+    try { return new _WS(url, protocols); } catch(e) { console.warn('WebSocket blocked:', url); }
+  };
+  window.WebSocket.prototype = _WS.prototype;
+
+  // patch window.open
+  const _open2 = window.open;
+  window.open = function(url, ...rest) {
+    return _open2.call(this, rewrite(url), ...rest);
+  };
+
+  // patch history pushState/replaceState so navigation stays proxied
+  const _push = history.pushState;
+  const _replace = history.replaceState;
+  history.pushState = function(state, title, url) {
+    return _push.call(this, state, title, url ? rewrite(url) : url);
+  };
+  history.replaceState = function(state, title, url) {
+    return _replace.call(this, state, title, url ? rewrite(url) : url);
+  };
+
+  // intercept all link clicks and form submits
+  document.addEventListener('click', function(e) {
+    const a = e.target.closest('a[href]');
+    if (a) {
+      const href = a.getAttribute('href');
+      if (href && !href.startsWith('#') && !href.startsWith('javascript:')) {
+        e.preventDefault();
+        location.href = rewrite(href);
+      }
+    }
+  }, true);
+
+  document.addEventListener('submit', function(e) {
+    const form = e.target;
+    if (form.action) {
+      form.action = rewrite(form.action);
+    }
+  }, true);
+})();
+<\/script>`;
+
+  // inject after <head> or at the very start
+  if (html.includes('<head>')) {
+    html = html.replace('<head>', '<head>' + runtime);
+  } else if (html.includes('<html>')) {
+    html = html.replace('<html>', '<html>' + runtime);
+  } else {
+    html = runtime + html;
+  }
+
+  return html;
+}
+
+// rewrite all urls in css
+function rewriteCss(css, base) {
+  return css.replace(/url\(["']?([^"')]+)["']?\)/gi, (match, val) => {
+    return `url("${rewriteUrl(val, base)}")`;
+  });
+}
+
+// rewrite import statements and fetch calls in js (basic, not a full ast rewrite)
+function rewriteJs(js, base) {
+  const proxy = PROXY_BASE;
+  // wrap in a self-executing scope that patches fetch/XHR
+  // for js files we just rewrite obvious string urls
+  js = js.replace(/(["'`])(https?:\/\/[^"'`\s]+)(["'`])/g, (match, q1, url, q2) => {
+    return `${q1}${rewriteUrl(url, base)}${q2}`;
+  });
+  return js;
 }
 
 const server = http.createServer((req, res) => {
-  // serve CORS headers so the browser doesn't block localhost responses
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', '*');
 
   if (req.method === 'OPTIONS') {
@@ -41,109 +190,123 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // root request — serve a simple status page
+  // status page
   if (req.url === '/' || req.url === '') {
     res.writeHead(200, { 'content-type': 'text/html' });
-    res.end('<h2>Tachyon Proxy running on port ' + PORT + '</h2>');
+    res.end('<h2>Tachyon proxy running on port ' + PORT + '</h2>');
     return;
   }
 
-  // expected format: /https%3A%2F%2Fyoutube.com or /https://youtube.com
-  let targetUrl = req.url.slice(1); // strip leading /
-  try {
-    targetUrl = decodeURIComponent(targetUrl);
-  } catch {
-    // already decoded
-  }
+  // decode target url from path
+  let targetUrl = dec(req.url.slice(1));
 
-  // make sure it's a valid url
   if (!targetUrl.startsWith('http://') && !targetUrl.startsWith('https://')) {
     res.writeHead(400, { 'content-type': 'text/plain' });
-    res.end('Bad request: URL must start with http:// or https://');
+    res.end('Bad request');
     return;
   }
 
-  let parsedUrl;
+  let parsed;
   try {
-    parsedUrl = new URL(targetUrl);
-  } catch (e) {
+    parsed = new URL(targetUrl);
+  } catch {
     res.writeHead(400, { 'content-type': 'text/plain' });
-    res.end('Bad request: invalid URL');
+    res.end('Invalid URL');
     return;
   }
 
-  const isHttps = parsedUrl.protocol === 'https:';
+  const isHttps = parsed.protocol === 'https:';
   const lib = isHttps ? https : http;
 
   const options = {
-    hostname: parsedUrl.hostname,
-    port: parsedUrl.port || (isHttps ? 443 : 80),
-    path: parsedUrl.pathname + parsedUrl.search,
+    hostname: parsed.hostname,
+    port: parsed.port || (isHttps ? 443 : 80),
+    path: parsed.pathname + parsed.search,
     method: req.method,
     headers: {
       ...req.headers,
-      host: parsedUrl.hostname, // important: set correct host header
-      'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      host: parsed.hostname,
+      'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
     },
+    timeout: 15000,
   };
 
-  // don't forward these headers to the target
   delete options.headers['origin'];
   delete options.headers['referer'];
-  delete options.headers['accept-encoding']; // prevent compressed responses we can't decode
+  delete options.headers['accept-encoding'];
+  delete options.headers['if-none-match'];
+  delete options.headers['if-modified-since'];
 
   const proxyReq = lib.request(options, (proxyRes) => {
-    // strip headers that block iframes
     const headers = { ...proxyRes.headers };
-    for (const h of BLOCKED_HEADERS) {
-      delete headers[h];
-    }
 
-    // handle redirects — rewrite location header to go through proxy
+    // strip blocking headers
+    for (const h of STRIP_HEADERS) delete headers[h];
+
+    // rewrite location header on redirects
     if (headers['location']) {
       try {
         const redirectUrl = new URL(headers['location'], targetUrl).href;
-        headers['location'] = `http://localhost:${PORT}/${encodeURIComponent(redirectUrl)}`;
-      } catch {
-        // leave as is
-      }
+        headers['location'] = `${PROXY_BASE}/${enc(redirectUrl)}`;
+      } catch {}
+    }
+
+    // fix cookies — strip domain/secure so they work on localhost
+    if (headers['set-cookie']) {
+      headers['set-cookie'] = (Array.isArray(headers['set-cookie']) ? headers['set-cookie'] : [headers['set-cookie']])
+        .map(c => c
+          .replace(/;\s*domain=[^;]*/gi, '')
+          .replace(/;\s*secure/gi, '')
+          .replace(/;\s*samesite=[^;]*/gi, '')
+        );
     }
 
     const contentType = (headers['content-type'] || '').toLowerCase();
     const isHtml = contentType.includes('text/html');
+    const isCss = contentType.includes('text/css');
+    const isJs = contentType.includes('javascript');
 
-    res.writeHead(proxyRes.statusCode, headers);
-
-    if (isHtml) {
-      // collect full body to rewrite urls
+    if (isHtml || isCss || isJs) {
+      // buffer the full body to rewrite it
       let body = '';
       proxyRes.setEncoding('utf8');
       proxyRes.on('data', chunk => body += chunk);
       proxyRes.on('end', () => {
-        const proxyBase = `http://localhost:${PORT}/`;
-        // rewrite relative links to go through proxy
-        body = body
-          .replace(/(href|src|action)="\/([^"]*?)"/g, `$1="${proxyBase}${encodeURIComponent(parsedUrl.origin + '/')}$2"`)
-          .replace(/(href|src|action)='\/([^']*?)'/g, `$1='${proxyBase}${encodeURIComponent(parsedUrl.origin + '/')}$2'`);
+        if (isHtml) body = rewriteHtml(body, targetUrl);
+        else if (isCss) body = rewriteCss(body, targetUrl);
+        else if (isJs) body = rewriteJs(body, targetUrl);
+
+        headers['content-length'] = Buffer.byteLength(body, 'utf8').toString();
+        res.writeHead(proxyRes.statusCode, headers);
         res.end(body);
       });
     } else {
-      // stream everything else directly
+      // stream binary content (images, fonts, video, etc.) directly
+      res.writeHead(proxyRes.statusCode, headers);
       proxyRes.pipe(res);
     }
   });
 
   proxyReq.on('error', (e) => {
-    console.error('Proxy error:', e.message);
-    res.writeHead(502, { 'content-type': 'text/plain' });
-    res.end('Proxy error: ' + e.message);
+    console.error(`Proxy error for ${targetUrl}:`, e.message);
+    if (!res.headersSent) {
+      res.writeHead(502, { 'content-type': 'text/plain' });
+      res.end('Proxy error: ' + e.message);
+    }
   });
 
-  // pipe request body (for POST etc)
+  proxyReq.on('timeout', () => {
+    proxyReq.destroy();
+    if (!res.headersSent) {
+      res.writeHead(504, { 'content-type': 'text/plain' });
+      res.end('Gateway timeout');
+    }
+  });
+
   req.pipe(proxyReq);
 });
 
 server.listen(PORT, '127.0.0.1', () => {
   console.log(`Tachyon proxy running at http://127.0.0.1:${PORT}`);
-  console.log(`Usage: http://127.0.0.1:${PORT}/https://youtube.com`);
+  console.log(`Usage: http://127.0.0.1:${PORT}/${enc('https://youtube.com')}`);
 });
