@@ -1,11 +1,17 @@
+const PROXY = 'http://127.0.0.1:8080';
+
 const SITES = {
-  youtube:  { label: 'YouTube',  url: 'https://www.youtube.com',      iframe: false },
-  nilered:  { label: 'NileRed',  url: 'https://www.youtube.com/@NileRed', iframe: false },
-  google:   { label: 'Google',   url: 'https://www.google.com',       iframe: false },
-  reddit:   { label: 'Reddit',   url: 'https://www.reddit.com',       iframe: false },
-  twitch:   { label: 'Twitch',   url: 'https://www.twitch.tv',        iframe: false },
-  spotify:  { label: 'Spotify',  url: 'https://open.spotify.com',     iframe: false },
+  youtube:  { label: 'YouTube',  url: 'https://www.youtube.com' },
+  nilered:  { label: 'NileRed',  url: 'https://www.youtube.com/@NileRed' },
+  google:   { label: 'Google',   url: 'https://www.google.com' },
+  reddit:   { label: 'Reddit',   url: 'https://www.reddit.com' },
+  twitch:   { label: 'Twitch',   url: 'https://www.twitch.tv' },
+  spotify:  { label: 'Spotify',  url: 'https://open.spotify.com' },
 };
+
+function proxyUrl(url) {
+  return `${PROXY}/${encodeURIComponent(url)}`;
+}
 
 function getMethod() {
   return document.querySelector('input[name="method"]:checked').value;
@@ -14,7 +20,7 @@ function getMethod() {
 function launch(key) {
   const site = SITES[key];
   if (!site) return;
-  openUrl(site.url, site.label, site.iframe);
+  openUrl(site.url, site.label);
 }
 
 function launchCustom() {
@@ -26,23 +32,30 @@ function launchCustom() {
   openUrl(url, url);
 }
 
-function openUrl(url, label, allowIframe = true) {
+function openUrl(url, label) {
   const method = getMethod();
+  const pUrl = proxyUrl(url);
 
-  if (method === 'iframe' && allowIframe) {
-    launchInline(url, label);
-  } else if (method === 'aboutblank' || (method === 'iframe' && !allowIframe)) {
-    launchAboutBlank(url);
+  if (method === 'aboutblank') {
+    launchAboutBlank(pUrl);
+  } else if (method === 'iframe') {
+    launchInline(pUrl, label);
   } else {
-    window.open(url, '_blank');
+    // direct — no proxy, just open the real url
+    const a = document.createElement('a');
+    a.href = url;
+    a.target = '_blank';
+    a.rel = 'noopener';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
   }
 }
 
 // --- about:blank method ---
-// for sites that block iframes, just open a real tab and navigate directly
 function launchAboutBlank(url) {
   const a = document.createElement('a');
-  a.href = url;
+  a.href = 'loader.html?url=' + encodeURIComponent(url);
   a.target = '_blank';
   a.rel = 'noopener';
   document.body.appendChild(a);

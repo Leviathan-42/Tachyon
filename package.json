@@ -1,0 +1,9 @@
+{
+  "name": "tachyon",
+  "version": "1.0.0",
+  "description": "Tachyon launcher",
+  "main": "proxy.js",
+  "scripts": {
+    "start": "node proxy.js"
+  }
+}
