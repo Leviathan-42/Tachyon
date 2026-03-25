@@ -3,17 +3,22 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Launcher</title>
+  <title>Tachyon</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
 
   <div class="container">
-    <h1 class="title">Launcher</h1>
+    <h1 class="title">Tachyon</h1>
     <p class="subtitle">Select a site to open</p>
 
+    <div class="proxy-status">
+      <span id="proxy-dot" class="dot offline"></span>
+      <span id="proxy-label">Proxy offline — run <code>npm start</code> first</span>
+    </div>
+
     <div class="search-bar">
-      <input type="text" id="customUrl" placeholder="Or enter a custom URL..." />
+      <input type="text" id="customUrl" placeholder="Enter a URL..." />
       <button onclick="launchCustom()">Go</button>
     </div>
 
@@ -51,11 +56,10 @@
 
     </div>
 
-    <div class="method-toggle">
-      <span>Launch method:</span>
-      <label><input type="radio" name="method" value="aboutblank" checked> about:blank</label>
-      <label><input type="radio" name="method" value="iframe"> Inline iframe</label>
-      <label><input type="radio" name="method" value="direct"> Direct (no cloak)</label>
+    <div class="view-toggle">
+      <span>View:</span>
+      <label><input type="radio" name="method" value="aboutblank" checked> New tab (about:blank)</label>
+      <label><input type="radio" name="method" value="iframe"> Inline</label>
     </div>
 
     <div id="inline-container" class="inline-container hidden">

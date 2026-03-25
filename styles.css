@@ -30,7 +30,35 @@ body {
 .subtitle {
   font-size: 0.95rem;
   color: #888;
-  margin-bottom: 28px;
+  margin-bottom: 16px;
+}
+
+/* proxy status */
+.proxy-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+  color: #888;
+  margin-bottom: 24px;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.dot.online  { background: #4caf50; box-shadow: 0 0 6px #4caf50; }
+.dot.offline { background: #f44336; box-shadow: 0 0 6px #f44336; }
+
+.proxy-status code {
+  background: #1f1f1f;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  color: #aaa;
 }
 
 /* Search / custom URL */
@@ -111,8 +139,8 @@ body {
   font-weight: 500;
 }
 
-/* Method toggle */
-.method-toggle {
+/* View toggle */
+.view-toggle {
   display: flex;
   align-items: center;
   gap: 18px;
@@ -122,11 +150,11 @@ body {
   flex-wrap: wrap;
 }
 
-.method-toggle span {
+.view-toggle span {
   color: #666;
 }
 
-.method-toggle label {
+.view-toggle label {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -134,7 +162,7 @@ body {
   color: #aaa;
 }
 
-.method-toggle input[type="radio"] {
+.view-toggle input[type="radio"] {
   accent-color: #888;
 }
 

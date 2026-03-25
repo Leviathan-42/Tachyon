@@ -87,3 +87,20 @@ function closeInline() {
 document.getElementById('customUrl').addEventListener('keydown', function(e) {
   if (e.key === 'Enter') launchCustom();
 });
+
+// check if proxy is running and update the status indicator
+async function checkProxy() {
+  const dot = document.getElementById('proxy-dot');
+  const label = document.getElementById('proxy-label');
+  try {
+    const res = await fetch(PROXY, { mode: 'no-cors' });
+    dot.className = 'dot online';
+    label.textContent = 'Proxy online';
+  } catch {
+    dot.className = 'dot offline';
+    label.textContent = 'Proxy offline — run npm start first';
+  }
+}
+
+checkProxy();
+setInterval(checkProxy, 5000);
