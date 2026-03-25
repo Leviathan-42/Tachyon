@@ -90,6 +90,7 @@ const server = http.createServer((req, res) => {
   // don't forward these headers to the target
   delete options.headers['origin'];
   delete options.headers['referer'];
+  delete options.headers['accept-encoding']; // prevent compressed responses we can't decode
 
   const proxyReq = lib.request(options, (proxyRes) => {
     // strip headers that block iframes
