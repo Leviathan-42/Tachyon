@@ -78,5 +78,33 @@
   </div>
 
   <script src="app.js"></script>
+  <script>
+    // mini log indicator on launcher — just shows proxy is alive and last event
+    const PROXY = 'http://127.0.0.1:8080';
+    function connectLauncherLog() {
+      const sse = new EventSource(`${PROXY}/__tachyon_log__`);
+      sse.onmessage = e => {
+        try {
+          const entry = JSON.parse(e.data);
+          const dot = document.getElementById('proxy-dot');
+          const label = document.getElementById('proxy-label');
+          dot.className = 'dot online';
+          if (entry.type === 'request') {
+            try {
+              const inner = new URL(decodeURIComponent(new URL(entry.extra.url).pathname.slice(1)));
+              label.textContent = '→ ' + inner.hostname + inner.pathname.slice(0, 40);
+            } catch { label.textContent = 'Proxy online'; }
+          }
+        } catch {}
+      };
+      sse.onerror = () => {
+        document.getElementById('proxy-dot').className = 'dot offline';
+        document.getElementById('proxy-label').textContent = 'Proxy offline — run npm start first';
+        setTimeout(connectLauncherLog, 3000);
+        sse.close();
+      };
+    }
+    connectLauncherLog();
+  </script>
 </body>
 </html>

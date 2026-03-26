@@ -471,6 +471,7 @@ function doRequestH2(targetUrl, parsed, forwardHeaders, bodyBuffer, res) {
       const encoding = headers['content-encoding'] || '';
       const contentType = headers['content-type'] || '';
       const resHeaders = buildResponseHeaders(headers, targetUrl);
+      broadcast('response', `${status} ${targetUrl}`, { status, url: targetUrl, proto: 'h2', contentType });
       processBody(stream, encoding, contentType, targetUrl, resHeaders, status, res);
       resolve();
     });
@@ -511,6 +512,7 @@ function doRequestH1(targetUrl, parsed, forwardHeaders, bodyBuffer, res) {
       const encoding = proxyRes.headers['content-encoding'] || '';
       const contentType = proxyRes.headers['content-type'] || '';
       const resHeaders = buildResponseHeaders(proxyRes.headers, targetUrl);
+      broadcast('response', `${proxyRes.statusCode} ${targetUrl}`, { status: proxyRes.statusCode, url: targetUrl, proto: 'h1', contentType });
       processBody(proxyRes, encoding, contentType, targetUrl, resHeaders, proxyRes.statusCode, res);
       resolve();
     });
@@ -530,7 +532,7 @@ async function doRequest(targetUrl, method, reqHeaders, bodyBuffer, res) {
   try { parsed = new URL(targetUrl); }
   catch { if (!res.headersSent) { res.writeHead(400); res.end('Invalid URL'); } return; }
 
-  console.log(`→ ${method} ${targetUrl}`);
+  broadcast('request', `${method} ${targetUrl}`, { method, url: targetUrl });
 
   const forwardHeaders = buildForwardHeaders({ headers: reqHeaders }, parsed);
   forwardHeaders['method'] = method;
@@ -540,7 +542,7 @@ async function doRequest(targetUrl, method, reqHeaders, bodyBuffer, res) {
       await doRequestH2(targetUrl, parsed, forwardHeaders, bodyBuffer, res);
       return;
     } catch (err) {
-      console.log(`  h2 failed (${err.message}) → h1`);
+      console.warn(`h2 failed (${err.message}) → h1 — ${targetUrl}`);
     }
   }
 
@@ -555,6 +557,40 @@ async function doRequest(targetUrl, method, reqHeaders, bodyBuffer, res) {
   }
 }
 
+// ─── Log broadcaster (SSE) ───────────────────────────────────────────────────
+
+const logClients = new Set();
+const logHistory = []; // keep last 200 entries for new connections
+const MAX_HISTORY = 200;
+
+function broadcast(type, message, extra) {
+  const entry = { type, message, extra, ts: Date.now() };
+  logHistory.push(entry);
+  if (logHistory.length > MAX_HISTORY) logHistory.shift();
+  const data = `data: ${JSON.stringify(entry)}\n\n`;
+  for (const client of logClients) {
+    try { client.write(data); } catch { logClients.delete(client); }
+  }
+}
+
+// override console methods to also broadcast
+const _log   = console.log.bind(console);
+const _error = console.error.bind(console);
+const _warn  = console.warn.bind(console);
+
+console.log = (...args) => {
+  _log(...args);
+  broadcast('info', args.join(' '));
+};
+console.error = (...args) => {
+  _error(...args);
+  broadcast('error', args.join(' '));
+};
+console.warn = (...args) => {
+  _warn(...args);
+  broadcast('warn', args.join(' '));
+};
+
 // ─── HTTP server ─────────────────────────────────────────────────────────────
 
 const server = http.createServer((req, res) => {
@@ -568,6 +604,24 @@ const server = http.createServer((req, res) => {
   if (req.url === '/' || req.url === '') {
     res.writeHead(200, { 'content-type': 'text/html' });
     res.end('<h2>Tachyon proxy running</h2>');
+    return;
+  }
+
+  // SSE log stream
+  if (req.url === '/__tachyon_log__') {
+    res.writeHead(200, {
+      'content-type': 'text/event-stream',
+      'cache-control': 'no-cache',
+      'connection': 'keep-alive',
+      'access-control-allow-origin': '*',
+    });
+    res.write('retry: 1000\n\n');
+    // send history to new client
+    for (const entry of logHistory) {
+      res.write(`data: ${JSON.stringify(entry)}\n\n`);
+    }
+    logClients.add(res);
+    req.on('close', () => logClients.delete(res));
     return;
   }
 
