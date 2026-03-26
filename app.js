@@ -2,11 +2,12 @@ const PROXY = 'http://127.0.0.1:8080';
 
 const SITES = {
   youtube:  { label: 'YouTube',  url: 'https://www.youtube.com' },
-  nilered:  { label: 'NileRed',  url: 'https://www.youtube.com/@NileRed' },
-  google:   { label: 'Google',   url: 'https://www.google.com' },
+  spotify:  { label: 'Spotify',  url: 'https://open.spotify.com' },
+  discord:  { label: 'Discord',  url: 'https://discord.com/app' },
   reddit:   { label: 'Reddit',   url: 'https://www.reddit.com' },
   twitch:   { label: 'Twitch',   url: 'https://www.twitch.tv' },
-  spotify:  { label: 'Spotify',  url: 'https://open.spotify.com' },
+  google:   { label: 'Google',   url: 'https://www.google.com' },
+  nilered:  { label: 'NileRed',  url: 'https://www.youtube.com/@NileRed' },
 };
 
 function proxyUrl(url) {
