@@ -83,6 +83,10 @@
     const PROXY = 'http://127.0.0.1:8080';
     function connectLauncherLog() {
       const sse = new EventSource(`${PROXY}/__tachyon_log__`);
+      sse.onopen = () => {
+        document.getElementById('proxy-dot').className = 'dot online';
+        document.getElementById('proxy-label').textContent = 'Proxy online';
+      };
       sse.onmessage = e => {
         try {
           const entry = JSON.parse(e.data);
