@@ -59,7 +59,7 @@ a:hover {
   padding: 1px 5px;
   border-radius: 3px;
   font-size: 0.75rem;
-  color: #aaa;
+  color: var(--gray-text);
 }
 
 .dot {
