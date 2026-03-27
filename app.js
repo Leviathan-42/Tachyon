@@ -36,6 +36,8 @@ function openUrl(url, label, method) {
     launchAboutBlank(pUrl);
   } else if (method === 'iframe') {
     launchInline(pUrl, label);
+  } else {
+    console.warn('openUrl: unknown method', method);
   }
 }
 
