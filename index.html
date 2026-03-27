@@ -147,7 +147,7 @@
               label.textContent = inner.hostname + inner.pathname.slice(0, 40);
             } catch { label.textContent = 'Proxy online'; }
           }
-        } catch {}
+        } catch (err) { console.warn('SSE parse error:', err); }
       };
       sse.onerror = () => {
         dot.className = 'dot offline';
