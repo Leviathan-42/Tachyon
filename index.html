@@ -8,79 +8,80 @@
 </head>
 <body>
 
-  <div class="container">
-    <h1 class="title">Tachyon</h1>
-    <p class="subtitle">Select a site to open</p>
+  <div class="rh-container">
 
-    <div class="proxy-status">
-      <span id="proxy-dot" class="dot offline"></span>
-      <span id="proxy-label">Proxy offline — run <code>npm start</code> first</span>
+    <div class="rh-header">
+      <div class="rh-status">
+        <span id="proxy-dot" class="dot offline"></span>
+        <span id="proxy-label">Proxy offline — run <code>npm start</code> first</span>
+      </div>
     </div>
 
-    <div class="search-bar">
-      <input type="text" id="customUrl" placeholder="Enter a URL..." />
-      <button onclick="launchCustom()">Go</button>
+    <div class="rh-hero">
+      <div class="rh-mascot">🦈</div>
+      <h1 class="rh-title">Tachyon</h1>
+      <p class="rh-subtitle">Click on the URL bar to start browsing.</p>
+
+      <div class="rh-urlbar-row">
+        <input type="text" id="customUrl" class="rh-urlbar" placeholder="https://www.google.com" />
+      </div>
+
+      <div class="rh-btn-row">
+        <span class="rh-btn" onclick="launchCustom('aboutblank')">Open AB cloaked</span>
+        <span class="rh-btn" onclick="launchCustom('iframe')">Open inline</span>
+      </div>
+
+      <p class="rh-or">or choose a site:</p>
+
+      <div class="rh-grid" id="grid">
+        <div class="rh-card" onclick="launch('youtube')">
+          <div class="rh-icon">▶</div>
+          <div class="rh-label">YouTube</div>
+        </div>
+        <div class="rh-card" onclick="launch('spotify')">
+          <div class="rh-icon">🎵</div>
+          <div class="rh-label">Spotify</div>
+        </div>
+        <div class="rh-card" onclick="launch('discord')">
+          <div class="rh-icon">💬</div>
+          <div class="rh-label">Discord</div>
+        </div>
+        <div class="rh-card" onclick="launch('reddit')">
+          <div class="rh-icon">👾</div>
+          <div class="rh-label">Reddit</div>
+        </div>
+        <div class="rh-card" onclick="launch('twitch')">
+          <div class="rh-icon">🎮</div>
+          <div class="rh-label">Twitch</div>
+        </div>
+        <div class="rh-card" onclick="launch('google')">
+          <div class="rh-icon">🔍</div>
+          <div class="rh-label">Google</div>
+        </div>
+        <div class="rh-card" onclick="launch('nilered')">
+          <div class="rh-icon">🧪</div>
+          <div class="rh-label">NileRed</div>
+        </div>
+      </div>
     </div>
 
-    <div class="grid" id="grid">
-
-      <div class="card" onclick="launch('youtube')">
-        <div class="icon">▶</div>
-        <div class="label">YouTube</div>
-      </div>
-
-      <div class="card" onclick="launch('spotify')">
-        <div class="icon">🎵</div>
-        <div class="label">Spotify</div>
-      </div>
-
-      <div class="card" onclick="launch('discord')">
-        <div class="icon">💬</div>
-        <div class="label">Discord</div>
-      </div>
-
-      <div class="card" onclick="launch('reddit')">
-        <div class="icon">👾</div>
-        <div class="label">Reddit</div>
-      </div>
-
-      <div class="card" onclick="launch('twitch')">
-        <div class="icon">🎮</div>
-        <div class="label">Twitch</div>
-      </div>
-
-      <div class="card" onclick="launch('google')">
-        <div class="icon">🔍</div>
-        <div class="label">Google</div>
-      </div>
-
-      <div class="card" onclick="launch('nilered')">
-        <div class="icon">🧪</div>
-        <div class="label">NileRed</div>
-      </div>
-
-    </div>
-
-    <div class="view-toggle">
-      <span>View:</span>
-      <label><input type="radio" name="method" value="aboutblank" checked> New tab (about:blank)</label>
-      <label><input type="radio" name="method" value="iframe"> Inline</label>
-    </div>
-
-    <div id="inline-container" class="inline-container hidden">
-      <div class="inline-bar">
+    <div id="inline-container" class="rh-inline-container hidden">
+      <div class="rh-inline-bar">
         <span id="inline-label">-</span>
         <button onclick="closeInline()">Close</button>
       </div>
       <iframe id="inline-frame" src="" allowfullscreen></iframe>
     </div>
 
+    <div class="rh-version">
+      <p>Tachyon v1.0.0</p>
+    </div>
+
   </div>
 
   <script src="app.js"></script>
   <script>
-    // mini log indicator on launcher — just shows proxy is alive and last event
-    // Note: PROXY constant is already defined in app.js; reuse it here.
+    // Proxy status indicator
     function connectLauncherLog() {
       const sse = new EventSource(`${PROXY}/__tachyon_log__`);
       sse.onopen = () => {
@@ -109,6 +110,11 @@
       };
     }
     connectLauncherLog();
+
+    // Allow pressing Enter in URL box
+    document.getElementById('customUrl').addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') launchCustom('aboutblank');
+    });
   </script>
 </body>
 </html>

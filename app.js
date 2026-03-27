@@ -14,8 +14,9 @@ function proxyUrl(url) {
   return `${PROXY}/${encodeURIComponent(url)}`;
 }
 
+// Default method — overridden by page-level script after this file loads
 function getMethod() {
-  return document.querySelector('input[name="method"]:checked').value;
+  return 'aboutblank';
 }
 
 function launch(key) {
@@ -24,17 +25,17 @@ function launch(key) {
   openUrl(site.url, site.label);
 }
 
-function launchCustom() {
+function launchCustom(method) {
   let url = document.getElementById('customUrl').value.trim();
   if (!url) return;
   if (!url.startsWith('http://') && !url.startsWith('https://')) {
     url = 'https://' + url;
   }
-  openUrl(url, url);
+  openUrl(url, url, method);
 }
 
-function openUrl(url, label) {
-  const method = getMethod();
+function openUrl(url, label, forceMethod) {
+  const method = forceMethod || getMethod();
   const pUrl = proxyUrl(url);
 
   if (method === 'aboutblank') {
@@ -42,7 +43,7 @@ function openUrl(url, label) {
   } else if (method === 'iframe') {
     launchInline(pUrl, label);
   } else {
-    // direct — no proxy, just open the real url
+    // direct — no proxy, open the real url
     const a = document.createElement('a');
     a.href = url;
     a.target = '_blank';
@@ -83,10 +84,3 @@ function closeInline() {
   container.classList.add('hidden');
   frame.src = '';
 }
-
-// allow pressing Enter in custom URL box
-document.getElementById('customUrl').addEventListener('keydown', function(e) {
-  if (e.key === 'Enter') launchCustom();
-});
-
-
