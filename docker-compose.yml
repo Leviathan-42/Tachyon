@@ -8,8 +8,8 @@ services:
     image: cloudflare/cloudflared:latest
     container_name: tachyon-tunnel
     restart: unless-stopped
-    command: tunnel --no-autoupdate --credentials-file /etc/cloudflared/d8829870-e157-4914-b436-926f685ddd40.json --url http://tachyon-proxy:8080 run d8829870-e157-4914-b436-926f685ddd40
+    command: tunnel --no-autoupdate --credentials-file /etc/cloudflared/tunnel-credentials.json --url http://tachyon-proxy:8080 run d8829870-e157-4914-b436-926f685ddd40
     volumes:
-      - /home/levi/.cloudflared:/etc/cloudflared:ro
+      - ./tunnel-credentials.json:/etc/cloudflared/tunnel-credentials.json:ro
     depends_on:
       - proxy

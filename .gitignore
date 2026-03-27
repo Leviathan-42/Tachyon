@@ -2,3 +2,6 @@
 *.png
 *.jpg
 *.jpeg
+
+# Cloudflare tunnel credentials — never commit these
+tunnel-credentials.json
