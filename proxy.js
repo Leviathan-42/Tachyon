@@ -870,6 +870,10 @@ function fetchWorkerScript(targetUrl, reqHeaders) {
 
 // ─── HTTP server ─────────────────────────────────────────────────────────────
 
+// A simple lightning bolt SVG matching the ⚡ tab icon used in the UI.
+// Defined at module scope so it is not recreated on every request.
+const FAVICON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><polygon points="9,1 3,9 8,9 7,15 13,7 8,7" fill="#a78bfa"/></svg>';
+
 const server = http.createServer((req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
@@ -881,16 +885,14 @@ const server = http.createServer((req, res) => {
   const reqPath = req.url.split('?')[0]; // strip query string for path matching
 
   // ── Favicon — served inline to eliminate 404 console noise ──────────────────
-  // A simple lightning bolt SVG matching the ⚡ tab icon used in the UI.
-  const FAVICON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><polygon points="9,1 3,9 8,9 7,15 13,7 8,7" fill="#a78bfa"/></svg>';
   if (reqPath === '/favicon.svg') {
     res.writeHead(200, { 'content-type': 'image/svg+xml', 'cache-control': 'public, max-age=86400' });
     res.end(FAVICON_SVG);
     return;
   }
   if (reqPath === '/favicon.ico') {
-    // Redirect to the SVG favicon — all modern browsers support SVG favicons.
-    res.writeHead(302, { location: '/favicon.svg' });
+    // 301 permanent redirect — browsers will cache this and skip the round-trip.
+    res.writeHead(301, { location: '/favicon.svg' });
     res.end();
     return;
   }
