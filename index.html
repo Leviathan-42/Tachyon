@@ -168,6 +168,14 @@
       this.select();
     });
 
+    // Escape closes inline view
+    document.addEventListener('keydown', function(e) {
+      if (e.key === 'Escape') {
+        const c = document.getElementById('inline-container');
+        if (c && !c.classList.contains('hidden')) closeInline();
+      }
+    });
+
     // Keyboard activation of site cards
     document.getElementById('grid').addEventListener('keydown', function(e) {
       if (e.key === 'Enter' || e.key === ' ') {
