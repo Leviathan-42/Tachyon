@@ -108,7 +108,7 @@ a:hover {
 .rh-title {
   font-size: 2rem;
   font-weight: 400;
-  color: #f0f0f0;
+  color: var(--text);
   margin-bottom: 6px;
 }
 
