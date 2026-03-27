@@ -60,13 +60,13 @@ function launchAboutBlank(url) {
 function launchInline(url, label) {
   const container = document.getElementById("inline-container");
   const frame = document.getElementById("inline-frame");
-  const labelEl = document.getElementById("inline-label");
 
   container.classList.remove("hidden");
   frame.src = url;
-  labelEl.textContent = label;
 
-  container.scrollIntoView({ behavior: "smooth" });
+  // Update tab title to show current site
+  const tabTitle = document.querySelector(".tab-title");
+  if (tabTitle) tabTitle.textContent = label || "Inline";
 }
 
 function closeInline() {
@@ -74,4 +74,8 @@ function closeInline() {
   const frame = document.getElementById("inline-frame");
   container.classList.add("hidden");
   frame.src = "";
+
+  // Reset tab title
+  const tabTitle = document.querySelector(".tab-title");
+  if (tabTitle) tabTitle.textContent = "New Tab";
 }
