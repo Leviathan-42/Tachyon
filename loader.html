@@ -259,7 +259,7 @@
     function connectLog() {
       const sse = new EventSource(`${PROXY}/__tachyon_log__`);
       sse.onmessage = e => {
-        try { addEntry(JSON.parse(e.data)); } catch {}
+        try { addEntry(JSON.parse(e.data)); } catch (err) { console.warn('SSE parse error:', err); }
       };
       sse.onerror = () => {
         setTimeout(connectLog, 2000);
