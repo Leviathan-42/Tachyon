@@ -34,31 +34,31 @@
       <p class="rh-or">or choose a site:</p>
 
       <div class="rh-grid" id="grid">
-        <div class="rh-card" onclick="launch('youtube')">
+        <div class="rh-card" role="button" tabindex="0" onclick="launch('youtube')">
           <div class="rh-icon">▶</div>
           <div class="rh-label">YouTube</div>
         </div>
-        <div class="rh-card" onclick="launch('spotify')">
+        <div class="rh-card" role="button" tabindex="0" onclick="launch('spotify')">
           <div class="rh-icon">🎵</div>
           <div class="rh-label">Spotify</div>
         </div>
-        <div class="rh-card" onclick="launch('discord')">
+        <div class="rh-card" role="button" tabindex="0" onclick="launch('discord')">
           <div class="rh-icon">💬</div>
           <div class="rh-label">Discord</div>
         </div>
-        <div class="rh-card" onclick="launch('reddit')">
+        <div class="rh-card" role="button" tabindex="0" onclick="launch('reddit')">
           <div class="rh-icon">👾</div>
           <div class="rh-label">Reddit</div>
         </div>
-        <div class="rh-card" onclick="launch('twitch')">
+        <div class="rh-card" role="button" tabindex="0" onclick="launch('twitch')">
           <div class="rh-icon">🎮</div>
           <div class="rh-label">Twitch</div>
         </div>
-        <div class="rh-card" onclick="launch('google')">
+        <div class="rh-card" role="button" tabindex="0" onclick="launch('google')">
           <div class="rh-icon">🔍</div>
           <div class="rh-label">Google</div>
         </div>
-        <div class="rh-card" onclick="launch('nilered')">
+        <div class="rh-card" role="button" tabindex="0" onclick="launch('nilered')">
           <div class="rh-icon">🧪</div>
           <div class="rh-label">NileRed</div>
         </div>
@@ -114,6 +114,14 @@
     // Allow pressing Enter in URL box
     document.getElementById('customUrl').addEventListener('keydown', function(e) {
       if (e.key === 'Enter') launchCustom('aboutblank');
+    });
+
+    // Allow keyboard activation of site cards (Enter / Space)
+    document.getElementById('grid').addEventListener('keydown', function(e) {
+      if (e.key === 'Enter' || e.key === ' ') {
+        const card = e.target.closest('.rh-card');
+        if (card) { e.preventDefault(); card.click(); }
+      }
     });
   </script>
 </body>

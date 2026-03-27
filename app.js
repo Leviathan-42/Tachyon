@@ -14,14 +14,10 @@ function proxyUrl(url) {
   return `${PROXY}/${encodeURIComponent(url)}`;
 }
 
-function getMethod() {
-  return 'aboutblank';
-}
-
 function launch(key) {
   const site = SITES[key];
   if (!site) return;
-  openUrl(site.url, site.label);
+  openUrl(site.url, site.label, 'aboutblank');
 }
 
 function launchCustom(method) {
@@ -33,23 +29,13 @@ function launchCustom(method) {
   openUrl(url, url, method);
 }
 
-function openUrl(url, label, forceMethod) {
-  const method = forceMethod || getMethod();
+function openUrl(url, label, method) {
   const pUrl = proxyUrl(url);
 
   if (method === 'aboutblank') {
     launchAboutBlank(pUrl);
   } else if (method === 'iframe') {
     launchInline(pUrl, label);
-  } else {
-    // direct — no proxy, open the real url
-    const a = document.createElement('a');
-    a.href = url;
-    a.target = '_blank';
-    a.rel = 'noopener';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
   }
 }
 

@@ -129,6 +129,7 @@ a:hover {
   border: 1px solid var(--gray-border);
   border-radius: 40px;
   font-size: 1.1rem;
+  font-family: inherit;
   padding: 8px 20px;
   outline: none;
   transition: border-color 0.2s, box-shadow 0.2s;
@@ -212,6 +213,11 @@ a:hover {
   transform: translateY(0);
 }
 
+.rh-card:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 .rh-icon {
   font-size: 1.8rem;
   margin-bottom: 8px;
@@ -257,6 +263,7 @@ a:hover {
   color: #333;
   cursor: pointer;
   font-size: 0.8rem;
+  font-family: inherit;
   transition: background 0.15s;
 }
 
