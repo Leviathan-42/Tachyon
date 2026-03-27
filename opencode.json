@@ -3,7 +3,7 @@
   "mcp": {
     "playwright": {
       "type": "local",
-      "command": ["bunx", "@playwright/mcp@latest", "--headless", "--isolated"],
+      "command": ["bunx", "@playwright/mcp@latest", "--headless", "--isolated", "--browser", "chromium", "--executable-path", "/home/levi/.cache/ms-playwright/chromium-1208/chrome-linux64/chrome"],
       "enabled": true
     }
   }
