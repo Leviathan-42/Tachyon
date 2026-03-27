@@ -140,6 +140,83 @@ function rewriteJs(js, base) {
   );
 }
 
+// ─── Worker runtime — injected as preamble into proxied worker scripts ───────
+
+// Returns the JS preamble string (NOT wrapped in <script>) to inject into workers.
+// Workers use `self` instead of `window`, and have no DOM APIs.
+function buildWorkerRuntime(base) {
+  const safeBase = base.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  return `
+(function(){
+"use strict";
+var P="${PROXY_BASE}";
+var B="${safeBase}";
+
+function rw(u){
+  if(!u||typeof u!=="string") return u;
+  u=u.trim();
+  if(u.startsWith("data:")||u.startsWith("blob:")||u.startsWith("javascript:")||
+     u.startsWith("#")||u.startsWith("mailto:")||u.startsWith("tel:")||
+     u.startsWith(P+"/")) return u;
+  try{
+    var r=new URL(u,B).href;
+    if(r.startsWith("http://")||r.startsWith("https://"))
+      return P+"/"+encodeURIComponent(r);
+  }catch(e){}
+  return u;
+}
+
+// ── fetch (worker) ──
+var _fetch=(typeof self!=="undefined"?self:globalThis).fetch;
+if(_fetch){
+  var _fetchBound=_fetch.bind(typeof self!=="undefined"?self:globalThis);
+  (typeof self!=="undefined"?self:globalThis).fetch=function(input,init){
+    try{
+      if(typeof input==="string"){
+        input=rw(input);
+      } else if(input&&typeof input.url==="string"){
+        var rwu=rw(input.url);
+        if(rwu!==input.url){
+          init=Object.assign({
+            method:input.method,
+            headers:input.headers,
+            body:input.body,
+            mode:input.mode,
+            credentials:input.credentials,
+            cache:input.cache,
+            redirect:input.redirect,
+            referrer:input.referrer,
+            referrerPolicy:input.referrerPolicy,
+            integrity:input.integrity,
+          },init||{});
+          delete init.keepalive;
+          input=rwu;
+        }
+      }
+    }catch(e){}
+    try{
+      var tUrl=typeof input==="string"?input:(input&&input.url?input.url:"");
+      if(tUrl.startsWith(P+"/")){
+        if(init&&init.keepalive){ init=Object.assign({},init); delete init.keepalive; }
+      }
+    }catch(e){}
+    return _fetchBound(input,init);
+  };
+}
+
+// ── XHR (worker) ──
+if(typeof XMLHttpRequest!=="undefined"){
+  var _open=XMLHttpRequest.prototype.open;
+  XMLHttpRequest.prototype.open=function(method,url){
+    try{ url=rw(url); }catch(e){}
+    return _open.apply(this,[method,url].concat([].slice.call(arguments,2)));
+  };
+}
+
+})();
+`;
+}
+
 // ─── Runtime script injected into every HTML page ────────────────────────────
 
 function buildRuntime(base) {
@@ -217,6 +294,15 @@ var _open=XMLHttpRequest.prototype.open;
 XMLHttpRequest.prototype.open=function(method,url){
   try{ url=rw(url); }catch(e){}
   return _open.apply(this,[method,url].concat([].slice.call(arguments,2)));
+};
+
+// ── sendBeacon ──
+// YouTube player uses navigator.sendBeacon for QoE stats. Without proxying,
+// these go directly to www.youtube.com and return 400 (wrong origin/no cookies).
+var _sendBeacon=navigator.sendBeacon.bind(navigator);
+navigator.sendBeacon=function(url,data){
+  try{ url=rw(url); }catch(e){}
+  return _sendBeacon(url,data);
 };
 
 // ── WebSocket ──
@@ -302,14 +388,18 @@ if(navigator.serviceWorker){
 
 // ── Worker patching — inject URL rewriting into web workers ──
 // YouTube's SABR video downloader runs in a dedicated worker.
-// We intercept Worker construction: rewrite the worker script URL through
-// the proxy, and serve a wrapper that patches worker-side fetch/XHR.
-// The patch code is stored in a data URL to avoid importScripts CORS issues.
+// We route the worker script through /__tachyon_worker__?url=... which
+// prepends fetch/XHR proxy patching code before the original worker script,
+// so all network requests from the worker are proxied.
 (function(){
   var _Worker=window.Worker;
   if(!_Worker) return;
   window.Worker=function(url,opts){
-    try{ url=rw(url); }catch(e){}
+    try{
+      var rwu=rw(url);
+      // Route through worker wrapper endpoint that injects proxy patching preamble
+      url=P+"/__tachyon_worker__?url="+encodeURIComponent(rwu)+"&base="+encodeURIComponent(B);
+    }catch(e){ try{ url=rw(url); }catch(e2){} }
     return new _Worker(url,opts);
   };
   window.Worker.prototype=_Worker.prototype;
@@ -699,6 +789,85 @@ console.warn = (...args) => {
   broadcast('warn', args.join(' '));
 };
 
+// ─── Worker script fetcher ───────────────────────────────────────────────────
+
+// Fetches a JS worker script by URL and returns its content as a Buffer.
+// Handles both H2 and H1, and decompresses gzip/br/deflate responses.
+// Used by the /__tachyon_worker__ endpoint to inject the proxy preamble.
+function fetchWorkerScript(targetUrl, reqHeaders) {
+  return new Promise((resolve, reject) => {
+    let parsed;
+    try { parsed = new URL(targetUrl); }
+    catch (e) { return reject(new Error(`Invalid worker URL: ${targetUrl}`)); }
+
+    const forwardHeaders = buildForwardHeaders({ headers: reqHeaders }, parsed);
+    forwardHeaders['method'] = 'GET';
+    forwardHeaders['accept'] = 'application/javascript, */*';
+
+    function tryH1() {
+      const isHttps = parsed.protocol === 'https:';
+      const lib = isHttps ? https : http;
+      const agent = isHttps ? httpsAgent : httpAgent;
+      const options = {
+        hostname: parsed.hostname,
+        port: parsed.port || (isHttps ? 443 : 80),
+        path: parsed.pathname + parsed.search,
+        method: 'GET',
+        headers: { ...forwardHeaders, host: parsed.hostname, connection: 'close' },
+        agent,
+        timeout: 15000,
+      };
+      delete options.headers['method'];
+      const proxyReq = lib.request(options, proxyRes => {
+        const chunks = [];
+        const enc = proxyRes.headers['content-encoding'] || '';
+        let stream = proxyRes;
+        stream = decompress(stream, enc);
+        stream.on('data', c => chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c)));
+        stream.on('end', () => resolve(Buffer.concat(chunks)));
+        stream.on('error', reject);
+      });
+      proxyReq.on('error', reject);
+      proxyReq.on('timeout', () => { proxyReq.destroy(); reject(new Error('worker h1 timeout')); });
+      proxyReq.end();
+    }
+
+    if (parsed.protocol === 'https:') {
+      // Try H2 first, fall back to H1
+      const origin = `https://${parsed.hostname}${parsed.port ? ':' + parsed.port : ''}`;
+      let session;
+      try { session = getH2Session(origin); } catch { tryH1(); return; }
+      const h2Headers = {
+        [http2.constants.HTTP2_HEADER_METHOD]: 'GET',
+        [http2.constants.HTTP2_HEADER_PATH]: parsed.pathname + parsed.search,
+        [http2.constants.HTTP2_HEADER_SCHEME]: 'https',
+        [http2.constants.HTTP2_HEADER_AUTHORITY]: parsed.hostname,
+      };
+      const skip = new Set(['host', 'connection', 'upgrade-insecure-requests', 'method']);
+      for (const [k, v] of Object.entries(forwardHeaders)) {
+        if (!skip.has(k.toLowerCase())) h2Headers[k] = v;
+      }
+      const timeout = setTimeout(() => { reject(new Error('worker h2 timeout')); }, 15000);
+      let stream;
+      try { stream = session.request(h2Headers); }
+      catch { clearTimeout(timeout); tryH1(); return; }
+      stream.on('error', err => { clearTimeout(timeout); tryH1(); });
+      stream.on('response', headers => {
+        clearTimeout(timeout);
+        const enc = headers['content-encoding'] || '';
+        const chunks = [];
+        let bodyStream = decompress(stream, enc);
+        bodyStream.on('data', c => chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c)));
+        bodyStream.on('end', () => resolve(Buffer.concat(chunks)));
+        bodyStream.on('error', reject);
+      });
+      stream.end();
+    } else {
+      tryH1();
+    }
+  });
+}
+
 // ─── HTTP server ─────────────────────────────────────────────────────────────
 
 const server = http.createServer((req, res) => {
@@ -748,6 +917,48 @@ const server = http.createServer((req, res) => {
     }
     logClients.add(res);
     req.on('close', () => logClients.delete(res));
+    return;
+  }
+
+  // ── Worker wrapper — fetches a worker script and prepends proxy patching preamble ──
+  // Workers don't inherit the page's patched fetch/XHR; they need their own patch.
+  // YouTube's SABR video worker makes fetch() calls to rr*.googlevideo.com directly
+  // without this patch, so video never loads.
+  if (reqPath === '/__tachyon_worker__') {
+    const params = new URLSearchParams(req.url.slice(req.url.indexOf('?')));
+    const workerUrl = params.get('url');
+    const workerBase = params.get('base') || workerUrl || '';
+    if (!workerUrl) {
+      res.writeHead(400, { 'content-type': 'text/plain' });
+      res.end('Missing url param');
+      return;
+    }
+    // Decode the proxied URL to get the real target URL.
+    // workerUrl is like http://127.0.0.1:8080/https%3A%2F%2F... (already proxied)
+    let targetWorkerUrl;
+    try {
+      const parsedWorkerUrl = new URL(workerUrl);
+      if (parsedWorkerUrl.hostname === '127.0.0.1' && String(parsedWorkerUrl.port) === String(PORT)) {
+        targetWorkerUrl = dec(parsedWorkerUrl.pathname.slice(1));
+      } else {
+        targetWorkerUrl = workerUrl;
+      }
+    } catch {
+      targetWorkerUrl = workerUrl;
+    }
+    fetchWorkerScript(targetWorkerUrl, req.headers).then(scriptBuf => {
+      const preamble = Buffer.from(buildWorkerRuntime(workerBase), 'utf8');
+      const combined = Buffer.concat([preamble, scriptBuf]);
+      res.writeHead(200, {
+        'content-type': 'application/javascript',
+        'access-control-allow-origin': '*',
+        'content-length': String(combined.length),
+      });
+      res.end(combined);
+    }).catch(err => {
+      console.error(`Worker fetch error for ${targetWorkerUrl}: ${err.message}`);
+      if (!res.headersSent) { res.writeHead(502, { 'content-type': 'text/plain' }); res.end(`Worker fetch error: ${err.message}`); }
+    });
     return;
   }
 
