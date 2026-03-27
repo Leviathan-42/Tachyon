@@ -37,7 +37,7 @@
         <button class="nav-btn disabled" title="Forward" disabled>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
         </button>
-        <button class="nav-btn" id="reload-btn" title="Reload" onclick="(function(){var f=document.getElementById('inline-frame');if(f&&f.src){f.src=f.src;}else{document.getElementById('customUrl').focus();}})()">
+        <button class="nav-btn" id="reload-btn" title="Reload" onclick="(function(){var c=document.getElementById('inline-container');var f=document.getElementById('inline-frame');if(c&&!c.classList.contains('hidden')&&f.src){f.src=f.src;}else{document.getElementById('customUrl').focus();}})()">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
         </button>
       </div>

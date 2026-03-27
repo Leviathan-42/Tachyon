@@ -160,6 +160,11 @@ html, body {
   color: var(--text);
 }
 
+.tab-close:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 /* New-tab button */
 .new-tab-btn {
   position: absolute;
@@ -180,6 +185,11 @@ html, body {
 
 .new-tab-btn:hover {
   background: var(--tab-hover-bg);
+}
+
+.new-tab-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .new-tab-btn svg {
@@ -235,6 +245,11 @@ html, body {
 
 .nav-btn:active {
   background: rgba(255,255,255,0.14);
+}
+
+.nav-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .nav-btn.disabled,
@@ -327,6 +342,11 @@ html, body {
 .address-go:hover {
   background: rgba(255,255,255,0.08);
   color: var(--accent);
+}
+
+.address-go:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .address-go svg {
