@@ -8,6 +8,8 @@
   --bg:           #0f0f0f;
   --card-bg:      #1a1a1a;
   --card-hover:   #252525;
+  --text:         #e8e8e8;
+  --text-muted:   #ccc;
 }
 
 * {
@@ -18,7 +20,7 @@
 
 body {
   background: var(--bg);
-  color: #e8e8e8;
+  color: var(--text);
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   min-height: 100vh;
   display: flex;
@@ -133,12 +135,12 @@ a:hover {
   padding: 8px 20px;
   outline: none;
   transition: border-color 0.2s, box-shadow 0.2s;
-  color: #e8e8e8;
+  color: var(--text);
   background: #1a1a1a;
 }
 
 .rh-urlbar::placeholder {
-  color: #555;
+  color: #777;
 }
 
 .rh-urlbar:focus {
@@ -166,7 +168,7 @@ a:hover {
   font-size: 0.9rem;
   font-family: inherit;
   transition: background-color 0.2s;
-  color: #ccc;
+  color: var(--text-muted);
   -webkit-user-select: none;
   user-select: none;
 }
@@ -229,7 +231,7 @@ a:hover {
 
 .rh-label {
   font-size: 0.85rem;
-  color: #ccc;
+  color: var(--text-muted);
   font-weight: 500;
 }
 
@@ -264,7 +266,7 @@ a:hover {
   border: 1px solid var(--gray-border);
   border-radius: 50px;
   padding: 3px 12px;
-  color: #ccc;
+  color: var(--text-muted);
   cursor: pointer;
   font-size: 0.8rem;
   font-family: inherit;
