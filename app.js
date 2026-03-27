@@ -14,7 +14,6 @@ function proxyUrl(url) {
   return `${PROXY}/${encodeURIComponent(url)}`;
 }
 
-// Default method — overridden by page-level script after this file loads
 function getMethod() {
   return 'aboutblank';
 }

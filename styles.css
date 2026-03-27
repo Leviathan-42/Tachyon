@@ -8,7 +8,6 @@
   --bg:           #ffffff;
   --card-bg:      #f4f5f6;
   --card-hover:   #e8eaed;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
 }
 
 * {
@@ -20,6 +19,7 @@
 body {
   background: var(--bg);
   color: #222;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   min-height: 100vh;
   display: flex;
   flex-direction: column;
@@ -151,6 +151,7 @@ a:hover {
 }
 
 .rh-btn {
+  background: transparent;
   border: 1px solid var(--gray-border);
   border-radius: 50px;
   cursor: pointer;
@@ -221,9 +222,9 @@ a:hover {
 
 /* ── Inline iframe container ── */
 .rh-inline-container {
-  width: 100%;
+  width: calc(100% - 40px);
   max-width: 700px;
-  margin: 0 20px 40px;
+  margin: 0 auto 40px;
   border: 1px solid #ddd;
   border-radius: 12px;
   overflow: hidden;
