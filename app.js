@@ -60,7 +60,9 @@ function launchAboutBlank(url) {
 function launchInline(url, label) {
   const container = document.getElementById("inline-container");
   const frame = document.getElementById("inline-frame");
+  const newTabPage = document.getElementById("new-tab-page");
 
+  if (newTabPage) newTabPage.classList.add("hidden");
   container.classList.remove("hidden");
   frame.src = url;
 
@@ -72,8 +74,12 @@ function launchInline(url, label) {
 function closeInline() {
   const container = document.getElementById("inline-container");
   const frame = document.getElementById("inline-frame");
+  const newTabPage = document.getElementById("new-tab-page");
+
   container.classList.add("hidden");
   frame.src = "";
+
+  if (newTabPage) newTabPage.classList.remove("hidden");
 
   // Reset tab title
   const tabTitle = document.querySelector(".tab-title");

@@ -19,10 +19,10 @@
           <div class="tab-content">
             <div class="tab-favicon">⚡</div>
             <div class="tab-title">New Tab</div>
-            <div class="tab-close" title="Close tab">&#x2715;</div>
+            <button class="tab-close" title="Close tab" onclick="closeInline()" aria-label="Close tab">&#x2715;</button>
           </div>
         </div>
-        <button class="new-tab-btn" title="New tab" onclick="document.getElementById('customUrl').focus()">
+        <button class="new-tab-btn" title="New tab" onclick="closeInline(); document.getElementById('customUrl').focus()">
           <svg viewBox="0 0 16 16" fill="currentColor"><path d="M7 7V1h2v6h6v2H9v6H7V9H1V7z"/></svg>
         </button>
       </div>
@@ -37,7 +37,7 @@
         <button class="nav-btn disabled" title="Forward" disabled>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
         </button>
-        <button class="nav-btn" id="reload-btn" title="Reload" onclick="document.getElementById('customUrl').focus()">
+        <button class="nav-btn" id="reload-btn" title="Reload" onclick="(function(){var f=document.getElementById('inline-frame');if(f&&f.src){f.src=f.src;}else{document.getElementById('customUrl').focus();}})()">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
         </button>
       </div>
@@ -175,21 +175,6 @@
         if (card) { e.preventDefault(); card.click(); }
       }
     });
-
-    // Show/hide new-tab page vs inline frame
-    const _origCloseInline = closeInline;
-    // Patch launchInline to hide new-tab page
-    const _origLaunchInline = launchInline;
-    window.launchInline = function(url, label) {
-      document.getElementById('new-tab-page').classList.add('hidden');
-      document.getElementById('inline-container').classList.remove('hidden');
-      _origLaunchInline(url, label);
-    };
-    window.closeInline = function() {
-      document.getElementById('new-tab-page').classList.remove('hidden');
-      document.getElementById('inline-container').classList.add('hidden');
-      _origCloseInline();
-    };
   </script>
 </body>
 </html>

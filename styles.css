@@ -21,6 +21,9 @@
   --divider:          #4a4d51;
   --btn-hover:        #5f6368;
   --btn-disabled:     #5a5a5a;
+  --tab-hover-bg:     #3a3d42;
+  --nav-border:       #1a1a1d;
+  --card-hover-border:#555555;
 
   --card-bg:          #2a2d31;
   --card-hover:       #33373c;
@@ -143,6 +146,13 @@ html, body {
   cursor: pointer;
   transition: background 0.15s;
   line-height: 1;
+  /* button reset */
+  appearance: none;
+  -webkit-appearance: none;
+  background: transparent;
+  border: none;
+  padding: 0;
+  font-family: inherit;
 }
 
 .tab-close:hover {
@@ -169,7 +179,7 @@ html, body {
 }
 
 .new-tab-btn:hover {
-  background: #3a3d42;
+  background: var(--tab-hover-bg);
 }
 
 .new-tab-btn svg {
@@ -188,7 +198,7 @@ html, body {
   padding: 0 12px;
   gap: 8px;
   flex-shrink: 0;
-  border-bottom: 1px solid #1a1a1d;
+  border-bottom: 1px solid var(--nav-border);
 }
 
 /* Nav icon buttons (back/forward/reload) */
@@ -436,7 +446,7 @@ html, body {
 
 .rh-card:hover {
   background: var(--card-hover);
-  border-color: #555;
+  border-color: var(--card-hover-border);
   transform: translateY(-2px);
 }
 
