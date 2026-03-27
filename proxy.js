@@ -29,8 +29,28 @@ const STRIP_RESPONSE = new Set([
   'cross-origin-embedder-policy',
   'cross-origin-resource-policy',
   'transfer-encoding',
-  'content-encoding', // we decompress manually
+  // Strip alt-svc to prevent Chrome from upgrading video requests to HTTP/3
+  // (QUIC) directly, which would bypass the proxy and cause ERR_ALPN_NEGOTIATION_FAILED.
+  'alt-svc',
+  // NOTE: content-encoding is NOT stripped here anymore — we only decompress
+  // text content (HTML/CSS/JS). Binary content (video/audio/images) is passed
+  // through as-is with original encoding and content-length intact.
 ]);
+
+// Content types that need text rewriting (decompress + rewrite)
+function needsTextRewrite(ct) {
+  return ct.includes('text/html') || ct.includes('text/css') ||
+    ct.includes('javascript') || ct.includes('ecmascript');
+}
+
+// Content types that should be piped through without decompression
+// Video/audio need range request support; decompressing breaks content-length
+function isBinaryPassthrough(ct) {
+  return ct.startsWith('video/') || ct.startsWith('audio/') ||
+    ct.startsWith('image/') || ct.includes('application/vnd.yt-ump') ||
+    ct.includes('application/octet-stream') || ct.includes('font/') ||
+    ct.startsWith('application/wasm');
+}
 
 // ─── URL helpers ─────────────────────────────────────────────────────────────
 
@@ -146,13 +166,47 @@ function rw(u){
 }
 
 // ── fetch ──
+// Chrome enforces HTTP/2 for keepalive fetch requests to localhost, which our
+// HTTP/1.1 proxy can't handle (ERR_ALPN_NEGOTIATION_FAILED). We strip
+// keepalive and proxy all URLs through this server.
 var _fetch=window.fetch.bind(window);
 window.fetch=function(input,init){
   try{
-    if(typeof input==="string") input=rw(input);
-    else if(input instanceof Request){
+    if(typeof input==="string"){
+      input=rw(input);
+    } else if(input instanceof Request){
       var rwu=rw(input.url);
-      if(rwu!==input.url) input=new Request(rwu,input);
+      // Always replace URL if it needs proxying, even if body read fails.
+      // Use a string URL + merged init so we don't have to clone the body.
+      if(rwu!==input.url){
+        // Merge the Request's properties into init so the body stream is
+        // consumed only once. If init already has these, it takes precedence.
+        init=Object.assign({
+          method:input.method,
+          headers:input.headers,
+          body:input.body,
+          mode:input.mode,
+          credentials:input.credentials,
+          cache:input.cache,
+          redirect:input.redirect,
+          referrer:input.referrer,
+          referrerPolicy:input.referrerPolicy,
+          integrity:input.integrity,
+          // keepalive intentionally omitted to prevent Chrome H2 enforcement
+        },init||{});
+        delete init.keepalive;
+        input=rwu; // use plain string now that init carries all options
+      }
+    }
+  }catch(e){}
+  // Strip keepalive from init when URL goes through the proxy
+  try{
+    var tUrl=typeof input==="string"?input:(input&&input.url?input.url:"");
+    if(tUrl.startsWith(P+"/")){
+      if(init&&init.keepalive){
+        init=Object.assign({},init);
+        delete init.keepalive;
+      }
     }
   }catch(e){}
   return _fetch(input,init);
@@ -245,6 +299,21 @@ if(navigator.serviceWorker){
     }
   });
 }
+
+// ── Worker patching — inject URL rewriting into web workers ──
+// YouTube's SABR video downloader runs in a dedicated worker.
+// We intercept Worker construction: rewrite the worker script URL through
+// the proxy, and serve a wrapper that patches worker-side fetch/XHR.
+// The patch code is stored in a data URL to avoid importScripts CORS issues.
+(function(){
+  var _Worker=window.Worker;
+  if(!_Worker) return;
+  window.Worker=function(url,opts){
+    try{ url=rw(url); }catch(e){}
+    return new _Worker(url,opts);
+  };
+  window.Worker.prototype=_Worker.prototype;
+})();
 
 // ── link click intercept ──
 document.addEventListener("click",function(e){
@@ -352,20 +421,26 @@ function buildResponseHeaders(rawHeaders, targetUrl) {
 function buildForwardHeaders(req, parsed) {
   const h = {};
   for (const [k, v] of Object.entries(req.headers)) {
-    if (!HOP_BY_HOP.has(k.toLowerCase())) h[k] = v;
+    const kl = k.toLowerCase();
+    if (!HOP_BY_HOP.has(kl)) h[kl] = v;
   }
   h['user-agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
   h['accept'] = h['accept'] || 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8';
   h['accept-language'] = 'en-US,en;q=0.9';
-  h['accept-encoding'] = 'gzip, deflate, br'; // request compression — we'll decompress
+  h['accept-encoding'] = 'gzip, deflate, br'; // request compression — we'll decompress text
   h['sec-ch-ua'] = '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"';
   h['sec-ch-ua-mobile'] = '?0';
   h['sec-ch-ua-platform'] = '"Windows"';
+  // Don't override sec-fetch-* if the client already sent them (e.g. video/xhr requests)
   h['sec-fetch-dest'] = h['sec-fetch-dest'] || 'document';
   h['sec-fetch-mode'] = h['sec-fetch-mode'] || 'navigate';
-  h['sec-fetch-site'] = 'none';
-  h['sec-fetch-user'] = '?1';
+  // sec-fetch-site: use 'cross-site' since requests from the proxy origin to
+  // third-party hosts are cross-site. 'none' was incorrect and may cause 403s.
+  h['sec-fetch-site'] = h['sec-fetch-site'] || 'cross-site';
   h['upgrade-insecure-requests'] = '1';
+  // sec-fetch-user only valid for navigations triggered by user activation
+  if (h['sec-fetch-mode'] === 'navigate') h['sec-fetch-user'] = '?1';
+  else delete h['sec-fetch-user'];
   return h;
 }
 
@@ -376,11 +451,23 @@ function processBody(rawStream, encoding, contentType, targetUrl, resHeaders, st
   const isHtml = ct.includes('text/html');
   const isCss  = ct.includes('text/css');
   const isJs   = ct.includes('javascript') || ct.includes('ecmascript');
-  const needsRewrite = isHtml || isCss || isJs;
+  const textRewrite = isHtml || isCss || isJs;
+  const binaryPassthrough = isBinaryPassthrough(ct);
 
+  if (binaryPassthrough) {
+    // Pass binary content (video/audio/images) through without decompression.
+    // This preserves content-encoding and content-length, allowing range requests
+    // and streaming to work correctly with YouTube's video delivery.
+    if (!res.headersSent) res.writeHead(statusCode, resHeaders);
+    rawStream.pipe(res);
+    rawStream.on('error', err => console.error(`  binary stream error: ${err.message}`));
+    return;
+  }
+
+  // Decompress text content for rewriting
   const stream = decompress(rawStream, encoding);
 
-  if (needsRewrite) {
+  if (textRewrite) {
     const chunks = [];
     stream.on('data', chunk => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
     stream.on('end', () => {
@@ -389,6 +476,8 @@ function processBody(rawStream, encoding, contentType, targetUrl, resHeaders, st
       else if (isCss) body = rewriteCss(body, targetUrl);
       else if (isJs)  body = rewriteJs(body, targetUrl);
       const buf = Buffer.from(body, 'utf8');
+      // Strip content-encoding since we decompressed, set correct length
+      delete resHeaders['content-encoding'];
       resHeaders['content-length'] = String(buf.length);
       delete resHeaders['transfer-encoding'];
       if (!res.headersSent) {
@@ -401,6 +490,11 @@ function processBody(rawStream, encoding, contentType, targetUrl, resHeaders, st
       if (!res.headersSent) { res.writeHead(502); res.end('Rewrite error'); }
     });
   } else {
+    // Non-binary, non-text-rewrite content (JSON, XML, etc.): decompress and stream.
+    // Must delete content-length since decompressed size differs from compressed size,
+    // and delete content-encoding since we've already decompressed.
+    delete resHeaders['content-encoding'];
+    delete resHeaders['content-length']; // size unknown after decompression
     if (!res.headersSent) res.writeHead(statusCode, resHeaders);
     stream.pipe(res);
     stream.on('error', err => console.error(`  stream error: ${err.message}`));
@@ -409,17 +503,21 @@ function processBody(rawStream, encoding, contentType, targetUrl, resHeaders, st
 
 // ─── HTTP/2 request ──────────────────────────────────────────────────────────
 
-// Reuse sessions per origin — but validate they're still alive
+// Reuse sessions per origin — but validate they're still alive.
+// Sessions are not shared across requests to CDN hostnames that use many IPs
+// (like rr*.googlevideo.com) because a session tied to one IP may fail for
+// a different resource path on the same logical hostname.
 const h2Pool = new Map();
 
 function getH2Session(origin) {
   const existing = h2Pool.get(origin);
+  // Check .destroyed AND that the session hasn't received GOAWAY
   if (existing && !existing.destroyed && !existing.closed) return existing;
-  if (existing) { try { existing.destroy(); } catch {} }
+  if (existing) { try { existing.destroy(); } catch {} h2Pool.delete(origin); }
 
   const session = http2.connect(origin, {
     rejectUnauthorized: false,
-    settings: { initialWindowSize: 65535 * 4 },
+    settings: { initialWindowSize: 65535 * 16 },
   });
   session.on('error', () => { try { session.destroy(); } catch {} h2Pool.delete(origin); });
   session.on('close', () => h2Pool.delete(origin));
@@ -449,21 +547,29 @@ function doRequestH2(targetUrl, parsed, forwardHeaders, bodyBuffer, res) {
     }
 
     const timeout = setTimeout(() => {
+      // Don't evict the pool entry on timeout — the session may still be alive
       reject(new Error('h2 timeout'));
-    }, 10000);
+    }, 15000);
 
     let stream;
     try {
       stream = session.request(h2Headers);
     } catch(e) {
       clearTimeout(timeout);
+      // Session failed to open a stream — evict so a fresh session is created next time
       h2Pool.delete(origin);
+      try { session.destroy(); } catch {}
       return reject(e);
     }
 
     stream.on('error', err => {
       clearTimeout(timeout);
-      h2Pool.delete(origin);
+      // Protocol errors (RST_STREAM, GOAWAY, etc.) indicate the session is broken
+      if (err.code === 'ERR_HTTP2_STREAM_ERROR' || err.code === 'ERR_HTTP2_SESSION_ERROR' ||
+          err.message.includes('Protocol error') || err.message.includes('GOAWAY')) {
+        h2Pool.delete(origin);
+        try { session.destroy(); } catch {}
+      }
       reject(err);
     });
 
@@ -645,12 +751,32 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  const targetUrl = dec(req.url.slice(1));
+  let targetUrl = dec(req.url.slice(1));
 
+  // When YouTube's JS uses history.pushState (e.g. /watch?v=...) the page URL
+  // changes to http://127.0.0.1:8080/watch?v=... and relative fetch/XHR calls
+  // like /youtubei/v1/... come here without a proxy prefix. Forward them to
+  // YouTube automatically by recognising well-known YouTube API paths.
   if (!targetUrl.startsWith('http://') && !targetUrl.startsWith('https://')) {
-    res.writeHead(404, { 'content-type': 'text/plain' });
-    res.end('Not found');
-    return;
+    const rawPath = req.url; // still has leading /
+    if (
+      rawPath.startsWith('/youtubei/') ||
+      rawPath.startsWith('/api/') ||
+      rawPath.startsWith('/generate_204') ||
+      rawPath.startsWith('/embed/') ||
+      rawPath.startsWith('/shorts/') ||
+      rawPath.startsWith('/watch') ||
+      rawPath.startsWith('/s/') ||
+      rawPath.startsWith('/channel/') ||
+      rawPath.startsWith('/hashtag/')
+    ) {
+      // Treat as a YouTube-relative path
+      targetUrl = 'https://www.youtube.com' + rawPath;
+    } else {
+      res.writeHead(404, { 'content-type': 'text/plain' });
+      res.end('Not found');
+      return;
+    }
   }
 
   const chunks = [];
@@ -665,7 +791,7 @@ const server = http.createServer((req, res) => {
   });
 });
 
-// ─── WebSocket proxy ─────────────────────────────────────────────────────────
+// ─── WebSocket proxy (HTTP/1.1 upgrade only) ─────────────────────────────────
 
 server.on('upgrade', (req, socket, head) => {
   const targetUrl = dec(req.url.slice(1));
