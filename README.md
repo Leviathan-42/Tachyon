@@ -62,9 +62,29 @@ package.json — npm start script
 
 ---
 
+## Docker / Cloudflare Tunnel
+
+A `docker-compose.yml` is included for running Tachyon behind a Cloudflare Tunnel so it is accessible outside the local machine.
+
+**Prerequisites:** a Cloudflare Tunnel already created via `cloudflared tunnel create <name>`.
+
+1. Copy your tunnel credentials JSON to the project root:
+   ```
+   cp ~/.cloudflared/<tunnel-uuid>.json ./tunnel-credentials.json
+   ```
+2. Update the tunnel UUID in `docker-compose.yml` (the `run <uuid>` argument in the `command` field).
+3. Start both services:
+   ```
+   docker compose up -d
+   ```
+
+`tunnel-credentials.json` is gitignored — never commit it.
+
+---
+
 ## Limitations
 
 - Complex single page apps (Spotify, Discord) may not work fully due to WebSocket and service worker requirements
 - Sites that use HTTP/2 server push won't benefit from proxying
 - WebSockets are not proxied — features relying on them may break
-- Only works on the local machine — not a shared server
+- Only works on the local machine — not a shared server (unless using the Cloudflare Tunnel setup above)
