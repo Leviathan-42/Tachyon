@@ -8,7 +8,7 @@ services:
     image: cloudflare/cloudflared:latest
     container_name: tachyon-tunnel
     restart: unless-stopped
-    command: tunnel --no-autoupdate --origincert /etc/cloudflared/cert.pem --credentials-file /etc/cloudflared/d8829870-e157-4914-b436-926f685ddd40.json run tachyon
+    command: tunnel --no-autoupdate --credentials-file /etc/cloudflared/d8829870-e157-4914-b436-926f685ddd40.json run tachyon
     volumes:
       - /home/levi/.cloudflared:/etc/cloudflared:ro
     depends_on:
