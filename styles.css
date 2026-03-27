@@ -136,7 +136,7 @@ a:hover {
   outline: none;
   transition: border-color 0.2s, box-shadow 0.2s;
   color: var(--text);
-  background: #1a1a1a;
+  background: var(--card-bg);
 }
 
 .rh-urlbar::placeholder {
@@ -255,7 +255,7 @@ a:hover {
   justify-content: space-between;
   align-items: center;
   padding: 8px 16px;
-  background: #1a1a1a;
+  background: var(--card-bg);
   border-bottom: 1px solid #2e2e2e;
   font-size: 0.85rem;
   color: var(--gray-text);
