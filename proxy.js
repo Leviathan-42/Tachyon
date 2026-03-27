@@ -2,6 +2,8 @@ const http = require('http');
 const https = require('https');
 const http2 = require('http2');
 const zlib = require('zlib');
+const fs = require('fs');
+const path = require('path');
 const { pipeline } = require('stream');
 
 const PORT = 8080;
@@ -601,9 +603,27 @@ const server = http.createServer((req, res) => {
 
   if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
 
-  if (req.url === '/' || req.url === '') {
-    res.writeHead(200, { 'content-type': 'text/html' });
-    res.end('<h2>Tachyon proxy running</h2>');
+  // ── Serve static frontend files ──────────────────────────────────────────────
+  const STATIC_FILES = {
+    '/':            { file: 'index.html',  mime: 'text/html' },
+    '/index.html':  { file: 'index.html',  mime: 'text/html' },
+    '/app.js':      { file: 'app.js',      mime: 'application/javascript' },
+    '/styles.css':  { file: 'styles.css',  mime: 'text/css' },
+    '/loader.html': { file: 'loader.html', mime: 'text/html' },
+  };
+  const reqPath = req.url.split('?')[0]; // strip query string for static file lookup
+  const staticEntry = STATIC_FILES[reqPath];
+  if (staticEntry) {
+    const filePath = path.join(__dirname, staticEntry.file);
+    fs.readFile(filePath, (err, data) => {
+      if (err) {
+        res.writeHead(500, { 'content-type': 'text/plain' });
+        res.end(`Failed to read ${staticEntry.file}: ${err.message}`);
+        return;
+      }
+      res.writeHead(200, { 'content-type': staticEntry.mime });
+      res.end(data);
+    });
     return;
   }
 
@@ -628,8 +648,8 @@ const server = http.createServer((req, res) => {
   const targetUrl = dec(req.url.slice(1));
 
   if (!targetUrl.startsWith('http://') && !targetUrl.startsWith('https://')) {
-    res.writeHead(400, { 'content-type': 'text/plain' });
-    res.end('Bad request: expected http(s) url');
+    res.writeHead(404, { 'content-type': 'text/plain' });
+    res.end('Not found');
     return;
   }
 

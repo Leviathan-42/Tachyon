@@ -1,20 +1,66 @@
 # Tachyon
 
+## Flux: Agent Task System
+
+Flux is the autonomous task orchestrator. It manages issues, agent execution, and observability via MCP tools.
+
+### Quick Reference
+
+```bash
+# List open issues
+flux issues list --status open
+
+# Get issue details
+flux issues get FLUX-42
+
+# Search issues
+flux issues search "login bug"
+
+# Create an issue
+flux issues create --title "Fix the thing" --priority high
+
+# Close an issue. If you are a flux agent, DO NOT CLOSE ISSUES YOU ARE WORKING ON. The Orchestrator will close them when you are done.
+flux issues close FLUX-42 --closeType duplicate --reason "Already Fixed in abc123"
+
+# Defer/undefer
+flux issues defer FLUX-42 --note "Blocked on upstream"
+flux issues undefer FLUX-42 --note "Upstream resolved"
+
+# View orchestrator status
+flux orchestrator status
+
+# Trigger the orchestrator to work an issue
+flux orchestrator run FLUX-42
+
+# View session history
+flux sessions list --limit 5
+flux sessions show <sessionId>
+```
+
+### For Agents
+
+When working on an issue assigned by Flux:
+- Your issue ID is in the `FLUX_ISSUE_ID` environment variable
+- Commit with the issue ID prefix: `git add <files> && git commit -m "FLUX-XX: description"`
+- Use `flux comments create FLUX-XX --content "status update"` to leave progress notes
+- Use `flux issues create --title "Follow-up task"` for discovered work
+
+---
+
 A local web proxy that strips X-Frame-Options and CSP headers so blocked sites load in-page, and cloaks the URL using about:blank.
 
 ## How to test your changes
 
-The app has two parts that must both be running to test:
+The proxy server serves both the frontend and the proxy functionality on port 8080.
 
-1. **The proxy server** — `node proxy.js` (runs on port 8080)
-2. **The frontend** — open `index.html` in a browser (or serve it)
+1. **The proxy server** — `node proxy.js` (runs on port 8080, also serves the frontend UI)
 
 ### Testing workflow
 
 Use the Playwright MCP to test your changes end-to-end:
 
 1. Start the proxy server in the background with bash: `node proxy.js &`
-2. Use `browser_navigate` to open `file:///home/levi/Tachyon/index.html`
+2. Use `browser_navigate` to open `http://127.0.0.1:8080/`
 3. Use `browser_snapshot` to read the accessibility tree and verify the UI loaded correctly
 4. Use `browser_console_messages` to check for JavaScript errors
 5. Test a proxy URL by navigating to `http://127.0.0.1:8080/<encoded-url>` and checking it loads

@@ -80,7 +80,7 @@
   <script src="app.js"></script>
   <script>
     // mini log indicator on launcher — just shows proxy is alive and last event
-    const PROXY = 'http://127.0.0.1:8080';
+    // Note: PROXY constant is already defined in app.js; reuse it here.
     function connectLauncherLog() {
       const sse = new EventSource(`${PROXY}/__tachyon_log__`);
       sse.onopen = () => {

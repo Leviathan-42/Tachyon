@@ -36,7 +36,7 @@ cd Tachyon
 npm start
 ```
 
-Then open `index.html` in your browser. The proxy status indicator at the top will turn green when the proxy is running.
+Then open `http://127.0.0.1:8080/` in your browser. The proxy status indicator at the top will turn green when the proxy is running.
 
 ---
 
