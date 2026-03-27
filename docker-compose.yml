@@ -1,0 +1,15 @@
+services:
+  proxy:
+    build: .
+    container_name: tachyon-proxy
+    restart: unless-stopped
+
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    container_name: tachyon-tunnel
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run tachyon
+    volumes:
+      - /home/levi/.cloudflared:/home/nonroot/.cloudflared:ro
+    depends_on:
+      - proxy
