@@ -1045,6 +1045,7 @@ server.on('upgrade', (req, socket, head) => {
   proxyReq.end();
 });
 
-server.listen(PORT, '127.0.0.1', () => {
-  console.log(`Tachyon proxy running at http://127.0.0.1:${PORT}`);
+const BIND_HOST = process.env.BIND_HOST || '127.0.0.1';
+server.listen(PORT, BIND_HOST, () => {
+  console.log(`Tachyon proxy running at http://${BIND_HOST}:${PORT}`);
 });

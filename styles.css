@@ -310,9 +310,6 @@ html, body {
   font-size: 14px;
   font-family: inherit;
   min-width: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .address-input::placeholder {
