@@ -1,0 +1,4 @@
+# Temporary screenshot artifacts from agent sessions
+*.png
+*.jpg
+*.jpeg
